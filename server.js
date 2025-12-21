@@ -20,6 +20,20 @@ app.get("/debug-files", (req, res) => {
 });
 
 
+app.get("/widget", (req, res) => {
+  res.sendFile(
+    path.join(process.cwd(), "public", "widget", "index.html")
+  );
+});
+
+
+app.get("/", (req, res) => {
+  res.sendFile(
+    path.join(process.cwd(), "public", "widget", "index.html")
+  );
+});
+
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
