@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
@@ -6,7 +7,11 @@ import OpenAI from "openai";
 dotenv.config();
 
 const app = express();
-app.use(express.static("public"));
+app.use(express.static(path.join(process.cwd(), "public")));
+
+
+
+
 
 
 // IMPORTANT: support BOTH JSON and form-encoded (Twilio)
