@@ -13,6 +13,13 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(process.cwd(), "public")));
 
+app.get("/debug-files", (req, res) => {
+  res.json({
+    cwd: process.cwd(),
+  });
+});
+
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
