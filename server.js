@@ -94,7 +94,7 @@ app.post("/chat", async (req, res) => {
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, "");
 
-// If user sends contact info without intent, redirect politely
+// Guard: contact info sent without intent (name + phone together)
 if (
   !pendingLead.intentDetected &&
   /\b\d{10}\b/.test(userMessage)
@@ -104,13 +104,6 @@ if (
   });
 }
 
-
-// If user sends contact info after a lead is already completed, redirect politely
-if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
-  return res.json({
-    reply: "Thanks! We’ve already got your info. How else can I help you?"
-  });
-}
 
 
     // Detect buying intent
