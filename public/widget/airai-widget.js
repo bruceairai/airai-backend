@@ -1,6 +1,7 @@
 (function () {
   // ✅ SET THIS to your Railway backend base URL (no trailing slash)
-  const BACKEND_BASE_URL = "https://athletic-respect-production.up.railway.app";
+const BACKEND_BASE_URL = window.location.origin;
+
 
   // Optional: greet message
   const GREETING = "Hi — I’m AIrAI. What can I help you with today?";
@@ -50,7 +51,7 @@
   }
 
   // UI
-  const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIrAI chat" }, [
+  const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIRAI chat" }, [
     el("img", { src: "airai-logo.png", alt: "AIrAI" })
   ]);
 
