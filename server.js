@@ -111,47 +111,58 @@ const cleanedMessage = lowerMessage.replace(/[^a-z0-9\s]/g, "");
 
     // Capture name
     if (pendingLead.intentDetected && !pendingLead.name) {
-      pendingLead.name = userMessage;
+     pendingLead.name = userMessage.split(" ")[0];
+
       return res.json({
         reply: `Thanks, ${pendingLead.name}! What’s the best phone number to reach you?`
       });
     }
 
-    // Capture phone
-    if (pendingLead.name && !pendingLead.phone) {
-      pendingLead.phone = userMessage;
+// Capture phone
+if (pendingLead.name && !pendingLead.phone) {
+  const phoneMatch = userMessage.match(/\b\d{10}\b/);
 
-   console.log("LEAD TRIGGERED");
-console.log("NAME:", pendingLead.name);
-console.log("PHONE:", pendingLead.phone);
+  if (!phoneMatch) {
+    return res.json({
+      reply: "Please enter a valid 10-digit phone number."
+    });
+  }
 
-try {
-  console.log("ATTEMPTING TO SEND EMAIL");
+  pendingLead.phone = phoneMatch[0];
 
-  const info = await transporter.sendMail({
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-    to: process.env.LEADS_TO_EMAIL || process.env.EMAIL_USER,
-    subject: "New Lead from AirAI Chatbot",
-    text: `New lead received:\n\nName: ${pendingLead.name}\nPhone: ${pendingLead.phone}`
+  console.log("LEAD TRIGGERED");
+  console.log("NAME:", pendingLead.name);
+  console.log("PHONE:", pendingLead.phone);
+
+  try {
+    console.log("ATTEMPTING TO SEND EMAIL");
+
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: process.env.LEADS_TO_EMAIL || process.env.EMAIL_USER,
+      subject: "New Lead from AirAI Chatbot",
+      text: `New lead received:\n\nName: ${pendingLead.name}\nPhone: ${pendingLead.phone}`
+    });
+
+    console.log("EMAIL SENT SUCCESS:", info.response);
+  } catch (err) {
+    console.error("EMAIL FAILED:", err);
+  }
+
+  // Reset safely AFTER everything
+  pendingLead = {
+    name: null,
+    phone: null,
+    intentDetected: false
+  };
+
+  return res.json({
+    reply: "Thanks! Your info has been sent to the team. Someone will reach out shortly."
   });
-
-  console.log("EMAIL SENT SUCCESS:", info.response);
-} catch (err) {
-  console.error("EMAIL FAILED:", err);
 }
 
 
-      // Reset for next lead
-      pendingLead = {
-        name: null,
-        phone: null,
-        intentDetected: false
-      };
 
-      return res.json({
-        reply: "Thanks! Your info has been sent to the team. Someone will reach out shortly."
-      });
-    }
 
     // Normal AI response (no lead flow)
     const completion = await openai.chat.completions.create({
