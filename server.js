@@ -91,10 +91,7 @@ app.post("/chat", async (req, res) => {
     }
 
     // Guard: contact info sent without intent
-    if (
-      !pendingLead.intentDetected &&
-      /\b\d{10}\b/.test(userMessage)
-    ) {
+    if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
       return res.json({
         reply:
           "Hi! I can help with pricing, estimates, or services. What can I assist you with?",
@@ -127,7 +124,7 @@ app.post("/chat", async (req, res) => {
     }
 
     // --------------------
-    // Capture phone (SAFE + ASYNC EMAIL)
+    // Capture phone (SAFE, NON-BLOCKING)
     // --------------------
     if (pendingLead.name && !pendingLead.phone) {
       const phoneMatch = userMessage.match(/\b\d{10}\b/);
@@ -141,7 +138,7 @@ app.post("/chat", async (req, res) => {
       const leadName = pendingLead.name;
       const leadPhone = phoneMatch[0];
 
-      // Reset state immediately (prevents freezes)
+      // Reset state immediately
       pendingLead = {
         name: null,
         phone: null,
@@ -154,8 +151,88 @@ app.post("/chat", async (req, res) => {
           "Thanks! Your info has been sent to the team. Someone will reach out shortly.",
       });
 
-      // Send email in background
-      (async () => {
+      // Send email AFTER response (cannot crash or freeze UI)
+      setImmediate(async () => {
         try {
           console.log("SENDING LEAD EMAIL");
-          await transport
+          await transporter.sendMail({
+            from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+            to: process.env.LEADS_TO_EMAIL || process.env.EMAIL_USER,
+            subject: "New Lead from AirAI Chatbot",
+            text: `New lead received:\n\nName: ${leadName}\nPhone: ${leadPhone}`,
+          });
+          console.log("EMAIL SENT SUCCESS");
+        } catch (emailErr) {
+          console.error("EMAIL FAILED (async):", emailErr);
+        }
+      });
+
+      return;
+    }
+
+    // --------------------
+    // Normal AI response
+    // --------------------
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are AirAI, a professional AI assistant for service businesses.
+Answer questions clearly and concisely.
+DO NOT ask for name, phone number, or contact information unless explicitly instructed by the system.`,
+        },
+        { role: "user", content: userMessage },
+      ],
+    });
+
+    return res.json({
+      reply: completion.choices[0].message.content,
+    });
+  } catch (err) {
+    console.error("CHAT ERROR:", err);
+    return res.json({
+      reply: "Sorry — something went wrong. Please try again.",
+    });
+  }
+});
+
+// --------------------
+// SMS (Twilio webhook)
+// --------------------
+app.post("/sms", async (req, res) => {
+  try {
+    const incomingMessage = req.body.Body || "";
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are AirAI, a professional AI assistant for service businesses.",
+        },
+        { role: "user", content: incomingMessage },
+      ],
+    });
+
+    res.set("Content-Type", "text/xml");
+    res.send(`
+<Response>
+  <Message>${completion.choices[0].message.content}</Message>
+</Response>
+    `);
+  } catch (err) {
+    console.error("SMS ERROR:", err);
+    res.status(500).send("SMS error");
+  }
+});
+
+// --------------------
+// Server start (Railway)
+// --------------------
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
