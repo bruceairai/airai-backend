@@ -1,11 +1,31 @@
+import dotenv from "dotenv";
+dotenv.config({ path: "./.env" });
+
+
+
+
+
+
 import express from "express";
 import path from "path";
 import cors from "cors";
-import dotenv from "dotenv";
 import OpenAI from "openai";
+import nodemailer from "nodemailer";
 
 
-dotenv.config();
+
+
+
+
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: Number(process.env.EMAIL_PORT),
+  secure: false, // true only for port 465
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 const app = express();
 
@@ -41,38 +61,126 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Health check (Railway uses this)
-app.get("/", (req, res) => {
-  res.status(200).send("AIrAI backend is running");
-});
+
+
+let pendingLead = {
+  name: null,
+  phone: null,
+  intentDetected: false
+};
+
+const buyingIntentKeywords = [
+  "quote",
+  "price",
+  "pricing",
+  "estimate",
+  "cost",
+  "call",
+  "contact",
+  "book",
+  "appointment",
+  "service",
+  "install"
+];
+
 
 // Web / widget chat
 app.post("/chat", async (req, res) => {
   try {
-    const userMessage = req.body.message;
+    const userMessage = req.body.message?.trim();
 
     if (!userMessage) {
       return res.json({ reply: "How can I help you today?" });
     }
 
+    const lowerMessage = userMessage.toLowerCase();
+const cleanedMessage = lowerMessage.replace(/[^a-z0-9\s]/g, "");
+
+
+    // Detect buying intent
+    if (
+      !pendingLead.intentDetected &&
+      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
+
+    ) {
+      pendingLead.intentDetected = true;
+      return res.json({
+        reply: "I can help with that. What’s your name?"
+      });
+    }
+
+    // Capture name
+    if (pendingLead.intentDetected && !pendingLead.name) {
+      pendingLead.name = userMessage;
+      return res.json({
+        reply: `Thanks, ${pendingLead.name}! What’s the best phone number to reach you?`
+      });
+    }
+
+    // Capture phone
+    if (pendingLead.name && !pendingLead.phone) {
+      pendingLead.phone = userMessage;
+
+   console.log("LEAD TRIGGERED");
+console.log("NAME:", pendingLead.name);
+console.log("PHONE:", pendingLead.phone);
+
+try {
+  console.log("ATTEMPTING TO SEND EMAIL");
+
+  const info = await transporter.sendMail({
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    to: process.env.LEADS_TO_EMAIL || process.env.EMAIL_USER,
+    subject: "New Lead from AirAI Chatbot",
+    text: `New lead received:\n\nName: ${pendingLead.name}\nPhone: ${pendingLead.phone}`
+  });
+
+  console.log("EMAIL SENT SUCCESS:", info.response);
+} catch (err) {
+  console.error("EMAIL FAILED:", err);
+}
+
+
+      // Reset for next lead
+      pendingLead = {
+        name: null,
+        phone: null,
+        intentDetected: false
+      };
+
+      return res.json({
+        reply: "Thanks! Your info has been sent to the team. Someone will reach out shortly."
+      });
+    }
+
+    // Normal AI response (no lead flow)
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content:
-            "You are AIrAI, a professional AI assistant for service businesses. Be concise, friendly, and helpful. Ask for name and phone number when appropriate."
+          content: `You are AirAI, a professional AI assistant for service businesses.
+Answer questions clearly and concisely.
+DO NOT ask for name, phone number, or contact information unless explicitly instructed by the system.`
+
+
         },
         { role: "user", content: userMessage }
       ]
     });
 
-    res.json({ reply: completion.choices[0].message.content });
+    return res.json({
+      reply: completion.choices[0].message.content
+    });
+
   } catch (err) {
-    console.error("CHAT ERROR:", err);
-    res.status(500).json({ error: "AI error" });
+    console.error("Chat error:", err);
+    res.json({
+      reply: "Sorry — something went wrong. Please try again."
+    });
   }
 });
+
 
 // SMS (Twilio webhook)
 app.post("/sms", async (req, res) => {
@@ -84,8 +192,11 @@ app.post("/sms", async (req, res) => {
       messages: [
         {
           role: "system",
-          content:
-            "You are AIrAI, an AI SMS assistant for service businesses. Be brief, friendly, and conversational. Ask for name and service needs."
+          content:`You are AirAI, a professional AI assistant for service businesses.
+Answer questions clearly and concisely.
+DO NOT ask for name, phone number, or contact information unless explicitly instructed by the system.`
+
+
         },
         { role: "user", content: incomingMessage }
       ]
@@ -107,6 +218,13 @@ app.post("/sms", async (req, res) => {
 
 // Railway-required port handling
 const PORT = process.env.PORT || 3000;
+
+  console.log("✅ Email sent:", info.messageId);
+}
+
+
+
+
 
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
