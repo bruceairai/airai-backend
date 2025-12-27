@@ -5,20 +5,12 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import OpenAI from "openai";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 // --------------------
-// Email (Nodemailer)
+// Email (Resend)
 // --------------------
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // --------------------
 // App setup
@@ -32,12 +24,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 // --------------------
-// Debug / Static routes
+// Static routes
 // --------------------
-app.get("/debug-files", (req, res) => {
-  res.json({ cwd: process.cwd() });
-});
-
 app.get("/widget", (req, res) => {
   res.sendFile(path.join(process.cwd(), "public", "widget", "index.html"));
 });
@@ -90,7 +78,7 @@ app.post("/chat", async (req, res) => {
       return res.json({ reply: "How can I help you today?" });
     }
 
-    // Guard: contact info sent without intent
+    // Guard: contact info without intent
     if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
       return res.json({
         reply:
@@ -123,9 +111,7 @@ app.post("/chat", async (req, res) => {
       });
     }
 
-    // --------------------
-    // Capture phone (SAFE, NON-BLOCKING)
-    // --------------------
+    // Capture phone (NON-BLOCKING)
     if (pendingLead.name && !pendingLead.phone) {
       const phoneMatch = userMessage.match(/\b\d{10}\b/);
 
@@ -145,42 +131,38 @@ app.post("/chat", async (req, res) => {
         intentDetected: false,
       };
 
-      // Respond to user immediately
+      // Respond immediately
       res.json({
         reply:
           "Thanks! Your info has been sent to the team. Someone will reach out shortly.",
       });
 
-      // Send email AFTER response (cannot crash or freeze UI)
+      // Send email in background via Resend
       setImmediate(async () => {
         try {
-          console.log("SENDING LEAD EMAIL");
-          await transporter.sendMail({
-            from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-            to: process.env.LEADS_TO_EMAIL || process.env.EMAIL_USER,
-            subject: "New Lead from AirAI Chatbot",
+          await resend.emails.send({
+            from: "AirAI Leads <onboarding@resend.dev>",
+            to: ["bruce@airai.dev"],
+            subject: "New AirAI Lead",
             text: `New lead received:\n\nName: ${leadName}\nPhone: ${leadPhone}`,
           });
-          console.log("EMAIL SENT SUCCESS");
-        } catch (emailErr) {
-          console.error("EMAIL FAILED (async):", emailErr);
+          console.log("EMAIL SENT SUCCESS (Resend)");
+        } catch (err) {
+          console.error("RESEND EMAIL FAILED:", err);
         }
       });
 
       return;
     }
 
-    // --------------------
     // Normal AI response
-    // --------------------
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content: `You are AirAI, a professional AI assistant for service businesses.
-Answer questions clearly and concisely.
-DO NOT ask for name, phone number, or contact information unless explicitly instructed by the system.`,
+Answer questions clearly and concisely.`,
         },
         { role: "user", content: userMessage },
       ],
@@ -194,37 +176,6 @@ DO NOT ask for name, phone number, or contact information unless explicitly inst
     return res.json({
       reply: "Sorry — something went wrong. Please try again.",
     });
-  }
-});
-
-// --------------------
-// SMS (Twilio webhook)
-// --------------------
-app.post("/sms", async (req, res) => {
-  try {
-    const incomingMessage = req.body.Body || "";
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are AirAI, a professional AI assistant for service businesses.",
-        },
-        { role: "user", content: incomingMessage },
-      ],
-    });
-
-    res.set("Content-Type", "text/xml");
-    res.send(`
-<Response>
-  <Message>${completion.choices[0].message.content}</Message>
-</Response>
-    `);
-  } catch (err) {
-    console.error("SMS ERROR:", err);
-    res.status(500).send("SMS error");
   }
 });
 

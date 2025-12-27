@@ -12,6 +12,7 @@
     "express": "^4.21.2",
     "nodemailer": "^7.0.11",
     "openai": "^4.28.0",
+    "resend": "^6.6.0",
     "twilio": "^4.23.0"
   }
 }
