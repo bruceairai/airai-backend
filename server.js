@@ -50,6 +50,8 @@ let pendingLead = {
   intentDetected: false,
 };
 
+const smsLeads = {};
+
 const buyingIntentKeywords = [
   "quote",
   "price",
@@ -178,6 +180,126 @@ Answer questions clearly and concisely.`,
     });
   }
 });
+
+// --------------------
+// SMS Receptionist (Twilio)
+// --------------------
+app.post("/sms", async (req, res) => {
+  try {
+    const from = req.body.From;       // Customer phone number
+    const body = (req.body.Body || "").trim();
+
+    if (!from || !body) {
+      res.set("Content-Type", "text/xml");
+      return res.send(`
+<Response>
+  <Message>Hi! How can I help you today?</Message>
+</Response>
+      `);
+    }
+
+    // Initialize state for this phone number
+    if (!smsLeads[from]) {
+      smsLeads[from] = {
+        name: null,
+        intentDetected: false,
+      };
+    }
+
+    const lead = smsLeads[from];
+    const cleanedMessage = body.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+
+    // Detect buying intent
+    if (
+      !lead.intentDetected &&
+      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
+    ) {
+      lead.intentDetected = true;
+
+      res.set("Content-Type", "text/xml");
+      return res.send(`
+<Response>
+  <Message>I can help with that! What’s your name?</Message>
+</Response>
+      `);
+    }
+
+    // Capture name
+    if (lead.intentDetected && !lead.name) {
+      lead.name = body.split(" ")[0];
+
+      res.set("Content-Type", "text/xml");
+      return res.send(`
+<Response>
+  <Message>Thanks, ${lead.name}! Someone will reach out shortly.</Message>
+</Response>
+      `);
+    }
+
+    // Lead complete → send alert
+    if (lead.intentDetected && lead.name) {
+      const leadName = lead.name;
+      const leadPhone = from;
+
+      // Reset state immediately
+      delete smsLeads[from];
+
+      // Respond to user
+      res.set("Content-Type", "text/xml");
+      res.send(`
+<Response>
+  <Message>Thanks! We’ve sent your info to the team.</Message>
+</Response>
+      `);
+
+      // Send email in background
+      setImmediate(async () => {
+        try {
+          await resend.emails.send({
+            from: "AirAI Leads <onboarding@resend.dev>",
+            to: ["bruce@airai.dev"],
+            subject: "New SMS Lead",
+            text: `New SMS lead received:\n\nName: ${leadName}\nPhone: ${leadPhone}`,
+          });
+          console.log("SMS LEAD EMAIL SENT");
+        } catch (err) {
+          console.error("SMS EMAIL FAILED:", err);
+        }
+      });
+
+      return;
+    }
+
+    // Fallback AI response
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are AirAI, a professional SMS receptionist for a service business. Keep responses short.",
+        },
+        { role: "user", content: body },
+      ],
+    });
+
+    res.set("Content-Type", "text/xml");
+    return res.send(`
+<Response>
+  <Message>${completion.choices[0].message.content}</Message>
+</Response>
+    `);
+  } catch (err) {
+    console.error("SMS ERROR:", err);
+    res.set("Content-Type", "text/xml");
+    return res.send(`
+<Response>
+  <Message>Sorry — something went wrong. Please try again.</Message>
+</Response>
+    `);
+  }
+});
+
 
 // --------------------
 // Server start (Railway)
