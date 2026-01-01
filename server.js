@@ -16,14 +16,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // App setup
 // --------------------
 const app = express();
-app.all("/voice/incoming", (req, res) => {
-  console.log("🔥 VOICE WEBHOOK HIT 🔥");
-  res.status(200).type("text/xml").send(`
-<Response>
-  <Say voice="alice">AirAI voice webhook is live.</Say>
-</Response>
-  `);
-});
+
 
 
 app.use(cors());
@@ -246,14 +239,16 @@ app.post("/sms", async (req, res) => {
 });
 
 // --------------------
-// VOICE – STEP 1
+// VOICE RECEPTIONIST (TWILIO)
 // --------------------
+
+// STEP 1: Answer call + ask reason
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
   <Say voice="alice">
-    Thanks for calling AirAI.
+    Thanks for calling Air A I.
     I’m the virtual receptionist.
   </Say>
 
@@ -272,6 +267,66 @@ app.post("/voice/incoming", (req, res) => {
 </Response>
   `);
 });
+
+// STEP 2: Ask for name
+app.post("/voice/reason", (req, res) => {
+  const reasonRecording = req.body.RecordingUrl;
+  const from = req.body.From;
+
+  console.log("CALL REASON RECORDING:", reasonRecording);
+  console.log("CALL FROM:", from);
+
+  res.type("text/xml");
+  res.send(`
+<Response>
+  <Say voice="alice">
+    Thanks. May I have your name?
+    Please speak after the tone, then press the pound key.
+  </Say>
+
+  <Record
+    action="/voice/name"
+    method="POST"
+    maxLength="6"
+    finishOnKey="#"
+    playBeep="true"
+  />
+</Response>
+  `);
+});
+
+// STEP 3: Close call + email alert
+app.post("/voice/name", async (req, res) => {
+  const nameRecording = req.body.RecordingUrl;
+  const from = req.body.From;
+
+  console.log("CALL NAME RECORDING:", nameRecording);
+  console.log("CALL FROM:", from);
+
+  try {
+    await resend.emails.send({
+      from: "AirAI Calls <onboarding@resend.dev>",
+      to: ["bruce@airai.dev"],
+      subject: "New AirAI Call",
+      text: `New call received.\n\nPhone: ${from}\n\nName Recording:\n${nameRecording}`,
+    });
+  } catch (err) {
+    console.error("VOICE EMAIL FAILED:", err);
+  }
+
+  res.type("text/xml");
+  res.send(`
+<Response>
+  <Say voice="alice">
+    Perfect. Thanks for calling.
+    Someone will follow up shortly.
+    Goodbye.
+  </Say>
+  <Hangup />
+</Response>
+  `);
+});
+
 
 // --------------------
 // Server start (Railway)
