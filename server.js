@@ -6,7 +6,6 @@ import path from "path";
 import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
-import fetch from "node-fetch";
 
 // --------------------
 // Email (Resend)
@@ -45,7 +44,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 TTS (already working)
+// 🔊 Text-to-Speech (USED BY VOICE)
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -179,7 +178,7 @@ app.post("/chat", async (req, res) => {
       ],
     });
 
-    res.show({ reply: completion.choices[0].message.content });
+    res.json({ reply: completion.choices[0].message.content });
   } catch (err) {
     console.error("CHAT ERROR:", err);
     res.json({ reply: "Sorry — something went wrong." });
@@ -247,76 +246,76 @@ app.post("/sms", async (req, res) => {
 });
 
 // --------------------
-// VOICE RECEPTIONIST + AI SUMMARY (ADDED SAFELY)
+// VOICE RECEPTIONIST (STABLE FLOW)
 // --------------------
 
-const urgencyKeywords = [
-  "not working",
-  "no heat",
-  "no air",
-  "broken",
-  "emergency",
-  "leak",
-  "asap",
-  "immediately",
-];
-
-function detectUrgency(text) {
-  const t = text.toLowerCase();
-  return urgencyKeywords.some(k => t.includes(k)) ? "HIGH" : "NORMAL";
-}
-
+// STEP 1: Ask reason
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
   <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AirAI.</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
-  <Play>https://${req.headers.host}/tts?text=Please%20tell%20me%20after%20the%20tone.</Play>
-  <Record action="/voice/reason" method="POST" maxLength="20" finishOnKey="#" playBeep="true" />
+  <Play>https://${req.headers.host}/tts?text=Please%20tell%20me%20after%20the%20tone%2C%20then%20press%20the%20pound%20key.</Play>
+
+  <Record
+    action="/voice/reason"
+    method="POST"
+    maxLength="20"
+    finishOnKey="#"
+    playBeep="true"
+  />
 </Response>
   `);
 });
 
-app.post("/voice/reason", async (req, res) => {
-  const recordingUrl = req.body.RecordingUrl;
-  const from = req.body.From;
+// STEP 2: Ask for name
+app.post("/voice/reason", (req, res) => {
+  res.type("text/xml");
+  res.send(`
+<Response>
+  <Play>https://${req.headers.host}/tts?text=Thanks.%20May%20I%20have%20your%20name%2C%20please%3F</Play>
+  <Play>https://${req.headers.host}/tts?text=Please%20say%20your%20name%20after%20the%20tone%2C%20then%20press%20the%20pound%20key.</Play>
 
-  let transcript = "Unable to transcribe.";
+  <Record
+    action="/voice/name"
+    method="POST"
+    maxLength="6"
+    finishOnKey="#"
+    playBeep="true"
+  />
+</Response>
+  `);
+});
+
+// STEP 3: Close call + email
+app.post("/voice/name", async (req, res) => {
+  const from = req.body.From;
+  const nameRecording = req.body.RecordingUrl;
 
   try {
-    const audioRes = await fetch(`${recordingUrl}.wav`);
-    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-
-    const transcription = await openai.audio.transcriptions.create({
-      file: audioBuffer,
-      model: "whisper-1",
-    });
-
-    transcript = transcription.text;
-    const urgency = detectUrgency(transcript);
-
     await resend.emails.send({
       from: "AirAI Calls <onboarding@resend.dev>",
       to: ["bruce@airai.dev"],
-      subject: `📞 New Call Summary – ${urgency}`,
-      text: `Phone: ${from}\n\nReason:\n${transcript}\n\nUrgency: ${urgency}`,
+      subject: "New AirAI Call",
+      text: `New call received.\n\nPhone: ${from}\n\nName recording:\n${nameRecording}`,
     });
   } catch (err) {
-    console.error("VOICE SUMMARY ERROR:", err);
+    console.error("VOICE EMAIL FAILED:", err);
   }
 
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Thank%20you.%20Someone%20will%20get%20back%20to%20you%20shortly.</Play>
+  <Play>https://${req.headers.host}/tts?text=Perfect.%20Thank%20you%20for%20calling.</Play>
+  <Play>https://${req.headers.host}/tts?text=Someone%20will%20get%20back%20to%20you%20shortly.</Play>
   <Hangup />
 </Response>
   `);
 });
 
 // --------------------
-// Server start
+// Server start (Railway)
 // --------------------
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
