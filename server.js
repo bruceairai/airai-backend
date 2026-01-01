@@ -16,10 +16,21 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // App setup
 // --------------------
 const app = express();
+app.all("/voice/incoming", (req, res) => {
+  console.log("🔥 VOICE WEBHOOK HIT 🔥");
+  res.status(200).type("text/xml").send(`
+<Response>
+  <Say voice="alice">AirAI voice webhook is live.</Say>
+</Response>
+  `);
+});
+
 
 app.use(cors());
+
+// ⚠️ IMPORTANT FOR TWILIO
+app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(process.cwd(), "public")));
 
@@ -80,7 +91,6 @@ app.post("/chat", async (req, res) => {
       return res.json({ reply: "How can I help you today?" });
     }
 
-    // Guard: contact info without intent
     if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
       return res.json({
         reply:
@@ -92,20 +102,14 @@ app.post("/chat", async (req, res) => {
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, "");
 
-    // Detect buying intent
     if (
       !pendingLead.intentDetected &&
-      buyingIntentKeywords.some(word =>
-        cleanedMessage.includes(word)
-      )
+      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
     ) {
       pendingLead.intentDetected = true;
-      return res.json({
-        reply: "I can help with that. What’s your name?",
-      });
+      return res.json({ reply: "I can help with that. What’s your name?" });
     }
 
-    // Capture name
     if (pendingLead.intentDetected && !pendingLead.name) {
       pendingLead.name = userMessage.split(" ")[0];
       return res.json({
@@ -113,7 +117,6 @@ app.post("/chat", async (req, res) => {
       });
     }
 
-    // Capture phone (NON-BLOCKING)
     if (pendingLead.name && !pendingLead.phone) {
       const phoneMatch = userMessage.match(/\b\d{10}\b/);
 
@@ -126,20 +129,17 @@ app.post("/chat", async (req, res) => {
       const leadName = pendingLead.name;
       const leadPhone = phoneMatch[0];
 
-      // Reset state immediately
       pendingLead = {
         name: null,
         phone: null,
         intentDetected: false,
       };
 
-      // Respond immediately
       res.json({
         reply:
           "Thanks! Your info has been sent to the team. Someone will reach out shortly.",
       });
 
-      // Send email in background via Resend
       setImmediate(async () => {
         try {
           await resend.emails.send({
@@ -148,7 +148,6 @@ app.post("/chat", async (req, res) => {
             subject: "New AirAI Lead",
             text: `New lead received:\n\nName: ${leadName}\nPhone: ${leadPhone}`,
           });
-          console.log("EMAIL SENT SUCCESS (Resend)");
         } catch (err) {
           console.error("RESEND EMAIL FAILED:", err);
         }
@@ -157,14 +156,13 @@ app.post("/chat", async (req, res) => {
       return;
     }
 
-    // Normal AI response
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are AirAI, a professional AI assistant for service businesses.
-Answer questions clearly and concisely.`,
+          content:
+            "You are AirAI, a professional AI assistant for service businesses.",
         },
         { role: "user", content: userMessage },
       ],
@@ -186,11 +184,11 @@ Answer questions clearly and concisely.`,
 // --------------------
 app.post("/sms", async (req, res) => {
   try {
-    const from = req.body.From;       // Customer phone number
+    const from = req.body.From;
     const body = (req.body.Body || "").trim();
 
     if (!from || !body) {
-      res.set("Content-Type", "text/xml");
+      res.type("text/xml");
       return res.send(`
 <Response>
   <Message>Hi! How can I help you today?</Message>
@@ -198,25 +196,19 @@ app.post("/sms", async (req, res) => {
       `);
     }
 
-    // Initialize state for this phone number
     if (!smsLeads[from]) {
-      smsLeads[from] = {
-        name: null,
-        intentDetected: false,
-      };
+      smsLeads[from] = { name: null, intentDetected: false };
     }
 
     const lead = smsLeads[from];
     const cleanedMessage = body.toLowerCase().replace(/[^a-z0-9\s]/g, "");
 
-    // Detect buying intent
     if (
       !lead.intentDetected &&
       buyingIntentKeywords.some(word => cleanedMessage.includes(word))
     ) {
       lead.intentDetected = true;
-
-      res.set("Content-Type", "text/xml");
+      res.type("text/xml");
       return res.send(`
 <Response>
   <Message>I can help with that! What’s your name?</Message>
@@ -224,11 +216,9 @@ app.post("/sms", async (req, res) => {
       `);
     }
 
-    // Capture name
     if (lead.intentDetected && !lead.name) {
       lead.name = body.split(" ")[0];
-
-      res.set("Content-Type", "text/xml");
+      res.type("text/xml");
       return res.send(`
 <Response>
   <Message>Thanks, ${lead.name}! Someone will reach out shortly.</Message>
@@ -236,75 +226,57 @@ app.post("/sms", async (req, res) => {
       `);
     }
 
-    // Lead complete → send alert
-    if (lead.intentDetected && lead.name) {
-      const leadName = lead.name;
-      const leadPhone = from;
-
-      // Reset state immediately
-      delete smsLeads[from];
-
-      // Respond to user
-      res.set("Content-Type", "text/xml");
-      res.send(`
+    res.type("text/xml");
+    res.send(`
 <Response>
   <Message>Thanks! We’ve sent your info to the team.</Message>
 </Response>
-      `);
-
-      // Send email in background
-      setImmediate(async () => {
-        try {
-          await resend.emails.send({
-            from: "AirAI Leads <onboarding@resend.dev>",
-            to: ["bruce@airai.dev"],
-            subject: "New SMS Lead",
-            text: `New SMS lead received:\n\nName: ${leadName}\nPhone: ${leadPhone}`,
-          });
-          console.log("SMS LEAD EMAIL SENT");
-        } catch (err) {
-          console.error("SMS EMAIL FAILED:", err);
-        }
-      });
-
-      return;
-    }
-
-    // Fallback AI response
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are AirAI, a professional SMS receptionist for a service business. Keep responses short.",
-        },
-        { role: "user", content: body },
-      ],
-    });
-
-    res.set("Content-Type", "text/xml");
-    return res.send(`
-<Response>
-  <Message>${completion.choices[0].message.content}</Message>
-</Response>
     `);
+
+    delete smsLeads[from];
   } catch (err) {
     console.error("SMS ERROR:", err);
-    res.set("Content-Type", "text/xml");
+    res.type("text/xml");
     return res.send(`
 <Response>
-  <Message>Sorry — something went wrong. Please try again.</Message>
+  <Message>Sorry — something went wrong.</Message>
 </Response>
     `);
   }
 });
 
+// --------------------
+// VOICE – STEP 1
+// --------------------
+app.post("/voice/incoming", (req, res) => {
+  res.type("text/xml");
+  res.send(`
+<Response>
+  <Say voice="alice">
+    Thanks for calling AirAI.
+    I’m the virtual receptionist.
+  </Say>
+
+  <Say voice="alice">
+    What are you calling about today?
+    Please speak after the tone, then press the pound key.
+  </Say>
+
+  <Record
+    action="/voice/reason"
+    method="POST"
+    maxLength="20"
+    finishOnKey="#"
+    playBeep="true"
+  />
+</Response>
+  `);
+});
 
 // --------------------
 // Server start (Railway)
 // --------------------
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
