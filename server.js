@@ -53,7 +53,7 @@ app.get("/tts", async (req, res) => {
 
     const speech = await openai.audio.speech.create({
       model: "tts-1-hd",
-      voice: "alloy",
+      voice: "nova",
       input: text,
       format: "mp3",
     });
