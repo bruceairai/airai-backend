@@ -256,12 +256,12 @@ app.post("/voice/incoming", (req, res) => {
 <Response>
   <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AirAI.</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
-  <Play>https://${req.headers.host}/tts?text=Please%20tell%20me%20after%20the%20tone%2C%20then%20press%20the%20pound%20key.</Play>
+  <Play>https://${req.headers.host}/tts?text=Please%20briefly%20describe%20how%20we%20can%20help%20you.</Play>
 
   <Record
     action="/voice/reason"
     method="POST"
-    maxLength="20"
+    maxLength="10"
     finishOnKey="#"
     playBeep="true"
   />
@@ -275,7 +275,6 @@ app.post("/voice/reason", (req, res) => {
   res.send(`
 <Response>
   <Play>https://${req.headers.host}/tts?text=Thanks.%20May%20I%20have%20your%20name%2C%20please%3F</Play>
-  <Play>https://${req.headers.host}/tts?text=Please%20say%20your%20name%20after%20the%20tone%2C%20then%20press%20the%20pound%20key.</Play>
 
   <Record
     action="/voice/name"
