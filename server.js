@@ -6,6 +6,7 @@ import path from "path";
 import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
+import fs from "fs";
 import { Readable } from "stream";
 
 // --------------------
@@ -70,7 +71,7 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT WIDGET (UNCHANGED — YOUR ORIGINAL)
+// CHAT WIDGET (UNCHANGED)
 // --------------------
 let pendingLead = {
   name: null,
@@ -182,7 +183,7 @@ app.post("/chat", async (req, res) => {
 });
 
 // --------------------
-// SMS RECEPTIONIST (UNCHANGED — YOUR ORIGINAL)
+// SMS RECEPTIONIST (UNCHANGED)
 // --------------------
 const smsLeads = {};
 
@@ -293,37 +294,57 @@ app.post("/voice/name", async (req, res) => {
 </Response>
   `);
 
-  // Background AI (safe)
+  // --------------------
+  // BACKGROUND AI (NEW, SAFE)
+  // --------------------
   (async () => {
     let reasonText = "";
     let nameText = "";
     let summary = "";
 
+    const authHeader =
+      "Basic " +
+      Buffer.from(
+        `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
+      ).toString("base64");
+
+    const downloadToTmp = async (url, filename) => {
+      const res = await fetch(`${url}.mp3`, {
+        headers: { Authorization: authHeader },
+      });
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const filePath = `/tmp/${filename}`;
+      fs.writeFileSync(filePath, buffer);
+      return filePath;
+    };
+
     try {
-      const fetchRecording = async url => {
-        const auth = Buffer.from(
-          `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
-        ).toString("base64");
-
-        const r = await fetch(`${url}.mp3`, {
-          headers: { Authorization: `Basic ${auth}` },
-        });
-
-        const buf = Buffer.from(await r.arrayBuffer());
-        return Readable.from(buf);
-      };
-
-      const transcribe = async url => {
-        const stream = await fetchRecording(url);
+      if (reasonUrl) {
+        const reasonPath = await downloadToTmp(
+          reasonUrl,
+          `${CallSid}-reason.mp3`
+        );
         const t = await openai.audio.transcriptions.create({
-          file: stream,
+          file: fs.createReadStream(reasonPath),
           model: "gpt-4o-transcribe",
         });
-        return t.text || "";
-      };
+        reasonText = t.text || "";
+        fs.unlinkSync(reasonPath);
+      }
 
-      if (reasonUrl) reasonText = await transcribe(reasonUrl);
-      if (nameUrl) nameText = await transcribe(nameUrl);
+      if (nameUrl) {
+        const namePath = await downloadToTmp(
+          nameUrl,
+          `${CallSid}-name.mp3`
+        );
+        const t = await openai.audio.transcriptions.create({
+          file: fs.createReadStream(namePath),
+          model: "gpt-4o-transcribe",
+        });
+        nameText = t.text || "";
+        fs.unlinkSync(namePath);
+      }
 
       if (reasonText) {
         const s = await openai.chat.completions.create({
