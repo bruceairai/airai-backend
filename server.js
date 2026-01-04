@@ -6,6 +6,7 @@ import path from "path";
 import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
+import { Readable } from "stream";
 
 // --------------------
 // Email (Resend)
@@ -44,7 +45,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 Text-to-Speech (VOICE)
+// 🔊 Text-to-Speech
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -69,29 +70,16 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT WIDGET (UNCHANGED)
+// CHAT (UNCHANGED)
 // --------------------
 app.post("/chat", async (req, res) => {
   try {
-    const userMessage =
-      typeof req.body?.message === "string"
-        ? req.body.message.trim()
-        : "";
-
-    if (!userMessage) {
-      return res.json({ reply: "How can I help you today?" });
-    }
+    const msg = req.body?.message?.trim();
+    if (!msg) return res.json({ reply: "How can I help you today?" });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are AirAI, a professional AI assistant for service businesses.",
-        },
-        { role: "user", content: userMessage },
-      ],
+      messages: [{ role: "user", content: msg }],
     });
 
     res.json({ reply: completion.choices[0].message.content });
@@ -104,7 +92,7 @@ app.post("/chat", async (req, res) => {
 // --------------------
 // SMS (UNCHANGED)
 // --------------------
-app.post("/sms", async (req, res) => {
+app.post("/sms", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
@@ -117,34 +105,25 @@ app.post("/sms", async (req, res) => {
 // VOICE RECEPTIONIST
 // --------------------
 
-// Store recordings per call
 const callRecordings = {};
 
-// STEP 1: Ask reason + record
+// STEP 1: Reason
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
   <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AirAI.</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
-
-  <Record
-    action="/voice/reason"
-    method="POST"
-    maxLength="10"
-    playBeep="true"
-  />
+  <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
 </Response>
   `);
 });
 
-// STEP 2: Save reason recording, ask for name
+// STEP 2: Save reason, ask name
 app.post("/voice/reason", (req, res) => {
-  const callSid = req.body.CallSid;
-  const reasonRecordingUrl = req.body.RecordingUrl;
-
-  if (callSid && reasonRecordingUrl) {
-    callRecordings[callSid] = { reasonRecordingUrl };
+  const { CallSid, RecordingUrl } = req.body;
+  if (CallSid && RecordingUrl) {
+    callRecordings[CallSid] = { reason: RecordingUrl };
   }
 
   res.type("text/xml");
@@ -152,25 +131,18 @@ app.post("/voice/reason", (req, res) => {
 <Response>
   <Play>https://${req.headers.host}/tts?text=Got%20it.</Play>
   <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
-
-  <Record
-    action="/voice/name"
-    method="POST"
-    maxLength="5"
-    playBeep="true"
-  />
+  <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
 </Response>
   `);
 });
 
-// STEP 3: Close call + background AI
+// STEP 3: Close + background AI
 app.post("/voice/name", async (req, res) => {
-  const callSid = req.body.CallSid;
-  const from = req.body.From;
-  const nameRecordingUrl = req.body.RecordingUrl;
-  const reasonRecordingUrl = callRecordings[callSid]?.reasonRecordingUrl;
+  const { CallSid, From, RecordingUrl } = req.body;
+  const reasonUrl = callRecordings[CallSid]?.reason;
+  const nameUrl = RecordingUrl;
 
-  // ✅ Respond to Twilio immediately
+  // Respond to Twilio immediately
   res.type("text/xml");
   res.send(`
 <Response>
@@ -180,66 +152,54 @@ app.post("/voice/name", async (req, res) => {
 </Response>
   `);
 
-  // --------------------
-  // BACKGROUND AI (BEST EFFORT)
-  // --------------------
+  // Background AI
   (async () => {
-    let nameText = "";
     let reasonText = "";
+    let nameText = "";
     let summary = "";
 
     try {
-      const transcribe = async (url, label) => {
-        const audioRes = await fetch(`${url}.mp3`);
-        const buffer = Buffer.from(await audioRes.arrayBuffer());
+      const transcribe = async (url) => {
+        const r = await fetch(`${url}.mp3`);
+        const buf = Buffer.from(await r.arrayBuffer());
+        const stream = Readable.from(buf);
 
-        const file = new File([buffer], `${label}.mp3`, {
-          type: "audio/mpeg",
-        });
-
-        const transcript = await openai.audio.transcriptions.create({
-          file,
+        const t = await openai.audio.transcriptions.create({
+          file: stream,
           model: "gpt-4o-transcribe",
         });
 
-        return transcript.text || "";
+        return t.text || "";
       };
 
-      if (reasonRecordingUrl) {
-        reasonText = await transcribe(reasonRecordingUrl, "reason");
-      }
-
-      if (nameRecordingUrl) {
-        nameText = await transcribe(nameRecordingUrl, "name");
-      }
+      if (reasonUrl) reasonText = await transcribe(reasonUrl);
+      if (nameUrl) nameText = await transcribe(nameUrl);
 
       if (reasonText) {
-        const summaryResponse = await openai.chat.completions.create({
+        const s = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
             {
               role: "system",
               content:
-                "Summarize this phone call in 1–2 short sentences for a business owner.",
+                "Summarize this phone call in 1–2 sentences for a business owner.",
             },
             { role: "user", content: reasonText },
           ],
         });
 
-        summary = summaryResponse.choices[0].message.content;
+        summary = s.choices[0].message.content;
       }
     } catch (err) {
       console.error("POST-CALL AI FAILED:", err);
     }
 
-    // ✅ EMAIL ALWAYS SENDS
     await resend.emails.send({
       from: "AirAI Calls <onboarding@resend.dev>",
       to: ["bruce@airai.dev"],
       subject: "New AirAI Call",
       text: `
-Phone:
-${from}
+Phone: ${From}
 
 Caller Name (AI):
 ${nameText || "Not detected"}
@@ -251,19 +211,19 @@ Reason Transcript:
 ${reasonText || "Not available"}
 
 Reason Recording:
-${reasonRecordingUrl || "Missing"}
+${reasonUrl || "Missing"}
 
 Name Recording:
-${nameRecordingUrl || "Missing"}
+${nameUrl || "Missing"}
       `,
     });
 
-    delete callRecordings[callSid];
+    delete callRecordings[CallSid];
   })();
 });
 
 // --------------------
-// Server start (Railway)
+// Start server
 // --------------------
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
