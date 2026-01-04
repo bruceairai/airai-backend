@@ -7,7 +7,6 @@ import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
 import fs from "fs";
-import { Readable } from "stream";
 
 // --------------------
 // Email (Resend)
@@ -20,8 +19,6 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const app = express();
 
 app.use(cors());
-
-// ⚠️ IMPORTANT FOR TWILIO
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
@@ -46,7 +43,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 Text-to-Speech (VOICE)
+// 🔊 Text-to-Speech
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -165,14 +162,7 @@ app.post("/chat", async (req, res) => {
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are AirAI, a professional AI assistant for service businesses.",
-        },
-        { role: "user", content: userMessage },
-      ],
+      messages: [{ role: "user", content: userMessage }],
     });
 
     res.json({ reply: completion.choices[0].message.content });
@@ -245,11 +235,11 @@ app.post("/sms", async (req, res) => {
 });
 
 // --------------------
-// VOICE RECEPTIONIST (PREMIUM FLOW)
+// VOICE RECEPTIONIST
 // --------------------
 const callRecordings = {};
 
-// STEP 1: Ask reason
+// STEP 1
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
@@ -261,7 +251,7 @@ app.post("/voice/incoming", (req, res) => {
   `);
 });
 
-// STEP 2: Save reason, ask name
+// STEP 2
 app.post("/voice/reason", (req, res) => {
   const { CallSid, RecordingUrl } = req.body;
   if (CallSid && RecordingUrl) {
@@ -278,13 +268,12 @@ app.post("/voice/reason", (req, res) => {
   `);
 });
 
-// STEP 3: Close + background AI
+// STEP 3
 app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
   const nameUrl = RecordingUrl;
 
-  // Respond to Twilio immediately
   res.type("text/xml");
   res.send(`
 <Response>
@@ -294,13 +283,11 @@ app.post("/voice/name", async (req, res) => {
 </Response>
   `);
 
-  // --------------------
-  // BACKGROUND AI (NEW, SAFE)
-  // --------------------
   (async () => {
     let reasonText = "";
     let nameText = "";
     let summary = "";
+    let urgency = "UNKNOWN";
 
     const authHeader =
       "Basic " +
@@ -308,42 +295,35 @@ app.post("/voice/name", async (req, res) => {
         `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
       ).toString("base64");
 
-    const downloadToTmp = async (url, filename) => {
-      const res = await fetch(`${url}.mp3`, {
+    const download = async (url, filename) => {
+      const r = await fetch(`${url}.mp3`, {
         headers: { Authorization: authHeader },
       });
-
-      const buffer = Buffer.from(await res.arrayBuffer());
+      const buf = Buffer.from(await r.arrayBuffer());
       const filePath = `/tmp/${filename}`;
-      fs.writeFileSync(filePath, buffer);
+      fs.writeFileSync(filePath, buf);
       return filePath;
     };
 
     try {
       if (reasonUrl) {
-        const reasonPath = await downloadToTmp(
-          reasonUrl,
-          `${CallSid}-reason.mp3`
-        );
+        const p = await download(reasonUrl, `${CallSid}-reason.mp3`);
         const t = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(reasonPath),
+          file: fs.createReadStream(p),
           model: "gpt-4o-transcribe",
         });
         reasonText = t.text || "";
-        fs.unlinkSync(reasonPath);
+        fs.unlinkSync(p);
       }
 
       if (nameUrl) {
-        const namePath = await downloadToTmp(
-          nameUrl,
-          `${CallSid}-name.mp3`
-        );
+        const p = await download(nameUrl, `${CallSid}-name.mp3`);
         const t = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(namePath),
+          file: fs.createReadStream(p),
           model: "gpt-4o-transcribe",
         });
         nameText = t.text || "";
-        fs.unlinkSync(namePath);
+        fs.unlinkSync(p);
       }
 
       if (reasonText) {
@@ -359,6 +339,19 @@ app.post("/voice/name", async (req, res) => {
           ],
         });
         summary = s.choices[0].message.content;
+
+        const u = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only.",
+            },
+            { role: "user", content: reasonText },
+          ],
+        });
+        urgency = u.choices[0].message.content.toUpperCase();
       }
     } catch (err) {
       console.error("POST-CALL AI FAILED:", err);
@@ -367,24 +360,21 @@ app.post("/voice/name", async (req, res) => {
     await resend.emails.send({
       from: "AirAI Calls <onboarding@resend.dev>",
       to: ["bruce@airai.dev"],
-      subject: "New AirAI Call",
+      subject: `New AirAI Call — Urgency: ${urgency}`,
       text: `
 Phone: ${From}
 
 Caller Name (AI):
 ${nameText || "Not detected"}
 
+Urgency:
+${urgency}
+
 Summary:
 ${summary || "Not available"}
 
-Reason Transcript:
+Transcript:
 ${reasonText || "Not available"}
-
-Reason Recording:
-${reasonUrl || "Missing"}
-
-Name Recording:
-${nameUrl || "Missing"}
       `,
     });
 
@@ -392,8 +382,6 @@ ${nameUrl || "Missing"}
   })();
 });
 
-// --------------------
-// Server start (Railway)
 // --------------------
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
