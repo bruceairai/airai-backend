@@ -246,41 +246,39 @@ app.post("/sms", async (req, res) => {
 });
 
 // --------------------
-// VOICE RECEPTIONIST (STABLE FLOW)
+// VOICE RECEPTIONIST (TIME-BASED, PREMIUM FLOW)
 // --------------------
 
-// STEP 1: Ask reason
+// STEP 1: Ask reason + record immediately
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
   <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AirAI.</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
-  <Play>https://${req.headers.host}/tts?text=Please%20briefly%20describe%20how%20we%20can%20help%20you.</Play>
 
   <Record
     action="/voice/reason"
     method="POST"
     maxLength="10"
-    finishOnKey="#"
     playBeep="true"
   />
 </Response>
   `);
 });
 
-// STEP 2: Ask for name
+// STEP 2: Acknowledge + ask for name
 app.post("/voice/reason", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Thanks.%20May%20I%20have%20your%20name%2C%20please%3F</Play>
+  <Play>https://${req.headers.host}/tts?text=Got%20it.</Play>
+  <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
 
   <Record
     action="/voice/name"
     method="POST"
-    maxLength="6"
-    finishOnKey="#"
+    maxLength="5"
     playBeep="true"
   />
 </Response>
@@ -306,7 +304,7 @@ app.post("/voice/name", async (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Perfect.%20Thank%20you%20for%20calling.</Play>
+  <Play>https://${req.headers.host}/tts?text=Thank%20you%20for%20calling.</Play>
   <Play>https://${req.headers.host}/tts?text=Someone%20will%20get%20back%20to%20you%20shortly.</Play>
   <Hangup />
 </Response>
