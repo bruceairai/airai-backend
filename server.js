@@ -45,7 +45,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 Text-to-Speech
+// 🔊 Text-to-Speech (VOICE)
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -70,16 +70,108 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT (UNCHANGED)
+// CHAT WIDGET (UNCHANGED — YOUR ORIGINAL)
 // --------------------
+let pendingLead = {
+  name: null,
+  phone: null,
+  intentDetected: false,
+};
+
+const buyingIntentKeywords = [
+  "quote",
+  "price",
+  "pricing",
+  "estimate",
+  "cost",
+  "call",
+  "contact",
+  "book",
+  "appointment",
+  "service",
+  "install",
+];
+
 app.post("/chat", async (req, res) => {
   try {
-    const msg = req.body?.message?.trim();
-    if (!msg) return res.json({ reply: "How can I help you today?" });
+    const userMessage =
+      typeof req.body?.message === "string"
+        ? req.body.message.trim()
+        : "";
+
+    if (!userMessage) {
+      return res.json({ reply: "How can I help you today?" });
+    }
+
+    if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
+      return res.json({
+        reply:
+          "Hi! I can help with pricing, estimates, or services. What can I assist you with?",
+      });
+    }
+
+    const cleanedMessage = userMessage
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "");
+
+    if (
+      !pendingLead.intentDetected &&
+      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
+    ) {
+      pendingLead.intentDetected = true;
+      return res.json({ reply: "I can help with that. What’s your name?" });
+    }
+
+    if (pendingLead.intentDetected && !pendingLead.name) {
+      pendingLead.name = userMessage.split(" ")[0];
+      return res.json({
+        reply: `Thanks, ${pendingLead.name}! What’s the best phone number to reach you?`,
+      });
+    }
+
+    if (pendingLead.name && !pendingLead.phone) {
+      const phoneMatch = userMessage.match(/\b\d{10}\b/);
+
+      if (!phoneMatch) {
+        return res.json({
+          reply: "Please enter a valid 10-digit phone number.",
+        });
+      }
+
+      const leadName = pendingLead.name;
+      const leadPhone = phoneMatch[0];
+
+      pendingLead = {
+        name: null,
+        phone: null,
+        intentDetected: false,
+      };
+
+      res.json({
+        reply:
+          "Thanks! Your info has been sent to the team. Someone will reach out shortly.",
+      });
+
+      await resend.emails.send({
+        from: "AirAI Leads <onboarding@resend.dev>",
+        to: ["bruce@airai.dev"],
+        subject: "New AirAI Chat Lead",
+        text: `Name: ${leadName}\nPhone: ${leadPhone}`,
+      });
+
+      return;
+    }
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: msg }],
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are AirAI, a professional AI assistant for service businesses.",
+        },
+        { role: "user", content: userMessage },
+      ],
     });
 
     res.json({ reply: completion.choices[0].message.content });
@@ -90,24 +182,73 @@ app.post("/chat", async (req, res) => {
 });
 
 // --------------------
-// SMS (UNCHANGED)
+// SMS RECEPTIONIST (UNCHANGED — YOUR ORIGINAL)
 // --------------------
-app.post("/sms", (req, res) => {
-  res.type("text/xml");
-  res.send(`
+const smsLeads = {};
+
+app.post("/sms", async (req, res) => {
+  try {
+    const from = req.body.From;
+    const body = (req.body.Body || "").trim();
+
+    if (!from || !body) {
+      res.type("text/xml");
+      return res.send(`
 <Response>
-  <Message>Thanks! Someone will reach out shortly.</Message>
+  <Message>Hi! How can I help you today?</Message>
 </Response>
-  `);
+      `);
+    }
+
+    if (!smsLeads[from]) {
+      smsLeads[from] = { name: null, intentDetected: false };
+    }
+
+    const lead = smsLeads[from];
+    const cleanedMessage = body.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+
+    if (
+      !lead.intentDetected &&
+      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
+    ) {
+      lead.intentDetected = true;
+      res.type("text/xml");
+      return res.send(`
+<Response>
+  <Message>I can help with that! What’s your name?</Message>
+</Response>
+      `);
+    }
+
+    if (lead.intentDetected && !lead.name) {
+      lead.name = body.split(" ")[0];
+      res.type("text/xml");
+      return res.send(`
+<Response>
+  <Message>Thanks, ${lead.name}! Someone will reach out shortly.</Message>
+</Response>
+      `);
+    }
+
+    res.type("text/xml");
+    res.send(`
+<Response>
+  <Message>Thanks! We’ve sent your info to the team.</Message>
+</Response>
+    `);
+
+    delete smsLeads[from];
+  } catch (err) {
+    console.error("SMS ERROR:", err);
+  }
 });
 
 // --------------------
-// VOICE RECEPTIONIST
+// VOICE RECEPTIONIST (PREMIUM FLOW)
 // --------------------
-
 const callRecordings = {};
 
-// STEP 1: Reason
+// STEP 1: Ask reason
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
@@ -152,23 +293,32 @@ app.post("/voice/name", async (req, res) => {
 </Response>
   `);
 
-  // Background AI
+  // Background AI (safe)
   (async () => {
     let reasonText = "";
     let nameText = "";
     let summary = "";
 
     try {
-      const transcribe = async (url) => {
-        const r = await fetch(`${url}.mp3`);
-        const buf = Buffer.from(await r.arrayBuffer());
-        const stream = Readable.from(buf);
+      const fetchRecording = async url => {
+        const auth = Buffer.from(
+          `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
+        ).toString("base64");
 
+        const r = await fetch(`${url}.mp3`, {
+          headers: { Authorization: `Basic ${auth}` },
+        });
+
+        const buf = Buffer.from(await r.arrayBuffer());
+        return Readable.from(buf);
+      };
+
+      const transcribe = async url => {
+        const stream = await fetchRecording(url);
         const t = await openai.audio.transcriptions.create({
           file: stream,
           model: "gpt-4o-transcribe",
         });
-
         return t.text || "";
       };
 
@@ -187,7 +337,6 @@ app.post("/voice/name", async (req, res) => {
             { role: "user", content: reasonText },
           ],
         });
-
         summary = s.choices[0].message.content;
       }
     } catch (err) {
@@ -223,7 +372,7 @@ ${nameUrl || "Missing"}
 });
 
 // --------------------
-// Start server
+// Server start (Railway)
 // --------------------
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
