@@ -151,9 +151,9 @@ app.post("/chat", async (req, res) => {
       });
 
       await resend.emails.send({
-        from: "AirAI Leads <onboarding@resend.dev>",
+        from: "AIR AI Leads <onboarding@resend.dev>",
         to: ["bruce@airai.dev"],
-        subject: "New AirAI Chat Lead",
+        subject: "New AIR AI Chat Lead",
         text: `Name: ${leadName}\nPhone: ${leadPhone}`,
       });
 
@@ -244,7 +244,7 @@ app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AirAI.</Play>
+  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AIR%20AI.</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
   <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
 </Response>
@@ -287,7 +287,8 @@ app.post("/voice/name", async (req, res) => {
     let reasonText = "";
     let nameText = "";
     let summary = "";
-    let urgency = "UNKNOWN";
+    let urgency = "LOW";
+    let isEmptyMessage = true;
 
     const authHeader =
       "Basic " +
@@ -312,7 +313,7 @@ app.post("/voice/name", async (req, res) => {
           file: fs.createReadStream(p),
           model: "gpt-4o-transcribe",
         });
-        reasonText = t.text || "";
+        reasonText = (t.text || "").trim();
         fs.unlinkSync(p);
       }
 
@@ -322,11 +323,14 @@ app.post("/voice/name", async (req, res) => {
           file: fs.createReadStream(p),
           model: "gpt-4o-transcribe",
         });
-        nameText = t.text || "";
+        nameText = (t.text || "").trim();
         fs.unlinkSync(p);
       }
 
-      if (reasonText) {
+      const wordCount = reasonText.split(/\s+/).filter(Boolean).length;
+      isEmptyMessage = wordCount < 3;
+
+      if (!isEmptyMessage) {
         const s = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
@@ -357,11 +361,13 @@ app.post("/voice/name", async (req, res) => {
       console.error("POST-CALL AI FAILED:", err);
     }
 
-    await resend.emails.send({
-      from: "AirAI Calls <onboarding@resend.dev>",
-      to: ["bruce@airai.dev"],
-      subject: `New AirAI Call — Urgency: ${urgency}`,
-      text: `
+    const subject = isEmptyMessage
+      ? "Missed Call – No Message Left"
+      : `New AIR AI Call — Urgency: ${urgency}`;
+
+    const body = isEmptyMessage
+      ? `A call was received but no message was left.\n\nPhone: ${From}`
+      : `
 Phone: ${From}
 
 Caller Name (AI):
@@ -375,7 +381,13 @@ ${summary || "Not available"}
 
 Transcript:
 ${reasonText || "Not available"}
-      `,
+`;
+
+    await resend.emails.send({
+      from: "AIR AI Calls <onboarding@resend.dev>",
+      to: ["bruce@airai.dev"],
+      subject,
+      text: body,
     });
 
     delete callRecordings[CallSid];
