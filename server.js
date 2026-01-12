@@ -22,17 +22,18 @@ app.use(cors());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-app.use(express.static(path.join(process.cwd(), "public")));
+// 🔧 FIX: correct static folder for Railway
+app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------
 // Static routes
 // --------------------
 app.get("/widget", (req, res) => {
-  res.sendFile(path.join(process.cwd(), "public", "widget", "index.html"));
+  res.sendFile(path.join(__dirname, "public", "widget", "index.html"));
 });
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(process.cwd(), "public", "widget", "index.html"));
+  res.sendFile(path.join(__dirname, "public", "widget", "index.html"));
 });
 
 // --------------------
@@ -244,7 +245,7 @@ app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AIR%20AI!</Play>
+  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling!</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
   <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
 </Response>
@@ -274,13 +275,11 @@ app.post("/voice/name", async (req, res) => {
   const reasonUrl = callRecordings[CallSid]?.reason;
   const nameUrl = RecordingUrl;
 
-  // ✅ NATIVE TWILIO FALLBACK (cannot fail)
+  // 🎯 Play static Nova MP3 (never fails)
   res.type("text/xml");
   res.send(`
 <Response>
-  <Say voice="alice">
-    Thank you for calling AIR AI. Someone will get back to you shortly.
-  </Say>
+  <Play>https://${req.headers.host}/goodbye.mp3</Play>
   <Hangup/>
 </Response>
   `);
