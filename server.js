@@ -7,6 +7,13 @@ import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
 import fs from "fs";
+import { fileURLToPath } from "url";
+
+// --------------------
+// ES Module __dirname fix
+// --------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // --------------------
 // Email (Resend)
