@@ -29,7 +29,7 @@ app.use(cors());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// 🔧 FIX: correct static folder for Railway
+// Serve static files (goodbye.mp3, widget, etc)
 app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------
@@ -247,12 +247,12 @@ app.post("/sms", async (req, res) => {
 // --------------------
 const callRecordings = {};
 
-// STEP 1
+// STEP 1 — GREETING (AIR AI restored)
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling!</Play>
+  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AIR%20AI!</Play>
   <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
   <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
 </Response>
@@ -276,13 +276,12 @@ app.post("/voice/reason", (req, res) => {
   `);
 });
 
-// STEP 3
+// STEP 3 — GOODBYE (reusable Nova MP3)
 app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
   const nameUrl = RecordingUrl;
 
-  // 🎯 Play static Nova MP3 (never fails)
   res.type("text/xml");
   res.send(`
 <Response>
