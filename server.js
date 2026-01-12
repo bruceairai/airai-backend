@@ -274,12 +274,14 @@ app.post("/voice/name", async (req, res) => {
   const reasonUrl = callRecordings[CallSid]?.reason;
   const nameUrl = RecordingUrl;
 
+  // ✅ NATIVE TWILIO FALLBACK (cannot fail)
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Thank%20you%20for%20calling.</Play>
-  <Play>https://${req.headers.host}/tts?text=Someone%20will%20get%20back%20to%20you%20shortly.</Play>
-  <Hangup />
+  <Say voice="alice">
+    Thank you for calling AIR AI. Someone will get back to you shortly.
+  </Say>
+  <Hangup/>
 </Response>
   `);
 
