@@ -4,7 +4,7 @@ const BACKEND_BASE_URL = window.location.origin;
 
 
   // Optional: greet message
-  const GREETING = "Hi — I’m AIrAI. What can I help you with today?";
+  const GREETING = "Hi — I’m AIR. The artificial intelligence receptionist. What can I help you with today?";
 
   function el(tag, attrs = {}, children = []) {
     const e = document.createElement(tag);
@@ -52,14 +52,14 @@ const BACKEND_BASE_URL = window.location.origin;
 
   // UI
   const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIRAI chat" }, [
-    el("img", { src: "airai-logo.png", alt: "AIrAI" })
+    el("img", { src: "airai-logo.png", alt: "AirAI" })
   ]);
 
   const panel = el("div", { id: "airai-panel" });
   const header = el("div", { id: "airai-header" });
   const left = el("div", { class: "left" }, [
     el("img", { src: "airai-logo.png", alt: "AIrAI" }),
-    el("div", { html: "AIrAI Assistant" })
+    el("div", { html: "AirAI Assistant" })
   ]);
   const closeBtn = el("button", { id: "airai-close" });
   closeBtn.textContent = "Close";
