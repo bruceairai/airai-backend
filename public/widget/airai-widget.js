@@ -1,10 +1,9 @@
 (function () {
-  // ✅ SET THIS to your Railway backend base URL (no trailing slash)
-const BACKEND_BASE_URL = window.location.origin;
+  // ✅ Railway backend base URL
+  const BACKEND_BASE_URL = "https://airai-backend-production.up.railway.app";
 
-
-  // Optional: greet message
-  const GREETING = "Hi — I’m AIR. The artificial intelligence receptionist. What can I help you with today?";
+  // ✅ Greeting message
+  const GREETING = "Hi — this is AIR, the AI receptionist. How can I help you today?";
 
   function el(tag, attrs = {}, children = []) {
     const e = document.createElement(tag);
@@ -51,15 +50,15 @@ const BACKEND_BASE_URL = window.location.origin;
   }
 
   // UI
-  const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIRAI chat" }, [
-    el("img", { src: "airai-logo.png", alt: "AirAI" })
+  const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIR AI chat" }, [
+    el("img", { src: "airai-logo.png", alt: "AIR AI" })
   ]);
 
   const panel = el("div", { id: "airai-panel" });
   const header = el("div", { id: "airai-header" });
   const left = el("div", { class: "left" }, [
-    el("img", { src: "airai-logo.png", alt: "AIrAI" }),
-    el("div", { html: "AirAI Assistant" })
+    el("img", { src: "airai-logo.png", alt: "AIR AI" }),
+    el("div", { html: "AIR AI Assistant" })
   ]);
   const closeBtn = el("button", { id: "airai-close" });
   closeBtn.textContent = "Close";
@@ -88,11 +87,15 @@ const BACKEND_BASE_URL = window.location.origin;
     if (messages.childElementCount === 0) addMessage("bot", GREETING);
     input.focus();
   }
-  function close() { panel.style.display = "none"; }
+
+  function close() { 
+    panel.style.display = "none"; 
+  }
 
   launcher.addEventListener("click", () => {
     panel.style.display === "block" ? close() : open();
   });
+
   closeBtn.addEventListener("click", close);
   sendBtn.addEventListener("click", sendMessage);
   input.addEventListener("keydown", (e) => {
