@@ -226,21 +226,36 @@ app.post("/voice/incoming", (req, res) => {
   `);
 });
 
-// STEP 2
+// STEP 2 — SILENCE-AWARE FLOW ✅
 app.post("/voice/reason", (req, res) => {
-  const { CallSid, RecordingUrl } = req.body;
+  const { CallSid, RecordingUrl, RecordingDuration } = req.body;
+
   if (CallSid && RecordingUrl) {
     callRecordings[CallSid] = { reason: RecordingUrl };
   }
 
+  const isSilence = !RecordingDuration || RecordingDuration === "0";
+
   res.type("text/xml");
-  res.send(`
+
+  if (isSilence) {
+    // No speech → skip "Got it"
+    res.send(`
+<Response>
+  <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
+  <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
+</Response>
+    `);
+  } else {
+    // Speech detected → normal flow
+    res.send(`
 <Response>
   <Play>https://${req.headers.host}/tts?text=Got%20it.</Play>
   <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
   <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
 </Response>
-  `);
+    `);
+  }
 });
 
 // STEP 3 — GOODBYE (reusable Nova MP3)
