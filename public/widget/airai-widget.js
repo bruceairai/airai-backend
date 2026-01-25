@@ -2,8 +2,14 @@
   // ✅ Railway backend base URL
   const BACKEND_BASE_URL = "https://airai-backend-production.up.railway.app";
 
-  // ✅ Greeting message
-  const GREETING = "Hi — this is AIR, the AI receptionist. How can I help you today?";
+  // Intake state
+  let step = "START";
+
+  const lead = {
+    name: "",
+    reason: "",
+    urgency: ""
+  };
 
   function el(tag, attrs = {}, children = []) {
     const e = document.createElement(tag);
@@ -25,27 +31,69 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
-  async function sendMessage() {
-    const text = input.value.trim();
-    if (!text) return;
+  function bot(text) {
+    addMessage("bot", text);
+  }
 
+  function user(text) {
     addMessage("user", text);
-    input.value = "";
-    input.focus();
+  }
 
+  async function submitLead() {
     try {
-      const r = await fetch(`${BACKEND_BASE_URL}/chat`, {
+      await fetch(`${BACKEND_BASE_URL}/chat-intake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify(lead)
       });
-
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      addMessage("bot", data.reply || "Sorry — I didn’t catch that. Try again?");
     } catch (err) {
-      console.error(err);
-      addMessage("bot", "Hmm — I’m having trouble connecting right now.");
+      console.error("Lead submit failed:", err);
+    }
+  }
+
+  function handleInput(text) {
+    user(text);
+
+    switch (step) {
+      case "START":
+        step = "ASK_NAME";
+        bot("May I have your name?");
+        break;
+
+      case "ASK_NAME":
+        lead.name = text;
+        step = "ASK_REASON";
+        bot("Thanks. What can we help you with today?");
+        break;
+
+      case "ASK_REASON":
+        lead.reason = text;
+        step = "ASK_URGENCY";
+        bot("Is this urgent? (yes or no)");
+        break;
+
+      case "ASK_URGENCY":
+        lead.urgency = text.toLowerCase().startsWith("y") ? "urgent" : "not urgent";
+        step = "CONFIRM";
+        bot(
+          `Got it. Here’s what I have:\n\nName: ${lead.name}\nReason: ${lead.reason}\nUrgency: ${lead.urgency}\n\nIs this correct? (yes or no)`
+        );
+        break;
+
+      case "CONFIRM":
+        if (text.toLowerCase().startsWith("y")) {
+          step = "DONE";
+          bot("Thank you. We’ve received your information and will get back to you shortly.");
+          submitLead();
+        } else {
+          step = "ASK_NAME";
+          bot("No problem. Let’s try again. What’s your name?");
+        }
+        break;
+
+      case "DONE":
+        bot("Someone from our team will follow up with you shortly.");
+        break;
     }
   }
 
@@ -58,7 +106,7 @@
   const header = el("div", { id: "airai-header" });
   const left = el("div", { class: "left" }, [
     el("img", { src: "airai-logo.png", alt: "AIR AI" }),
-    el("div", { html: "AIR AI Assistant" })
+    el("div", { html: "AIR AI Receptionist" })
   ]);
   const closeBtn = el("button", { id: "airai-close" });
   closeBtn.textContent = "Close";
@@ -84,12 +132,15 @@
 
   function open() {
     panel.style.display = "block";
-    if (messages.childElementCount === 0) addMessage("bot", GREETING);
+    if (messages.childElementCount === 0) {
+      bot("Hi — this is AIR, the AI receptionist. How can I help you today?");
+      step = "START";
+    }
     input.focus();
   }
 
-  function close() { 
-    panel.style.display = "none"; 
+  function close() {
+    panel.style.display = "none";
   }
 
   launcher.addEventListener("click", () => {
@@ -97,8 +148,20 @@
   });
 
   closeBtn.addEventListener("click", close);
-  sendBtn.addEventListener("click", sendMessage);
+
+  sendBtn.addEventListener("click", () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    handleInput(text);
+  });
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") sendMessage();
+    if (e.key === "Enter") {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      handleInput(text);
+    }
   });
 })();
