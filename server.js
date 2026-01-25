@@ -76,20 +76,53 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT INTAKE ENDPOINT (NEW)
+// CHAT INTAKE ENDPOINT
 // --------------------
 app.post("/chat-intake", async (req, res) => {
   try {
-    const { name, reason, urgency } = req.body;
+    const { name, phone, reason } = req.body;
+
+    // Simple urgency detection
+    const urgentKeywords = [
+      "no heat",
+      "no ac",
+      "flood",
+      "leak",
+      "burst",
+      "smell gas",
+      "gas",
+      "fire",
+      "sparks",
+      "smoke",
+      "overflow",
+      "emergency",
+      "urgent",
+      "asap",
+      "immediately"
+    ];
+
+    let urgency = "LOW";
+    const reasonLower = (reason || "").toLowerCase();
+
+    if (urgentKeywords.some(word => reasonLower.includes(word))) {
+      urgency = "HIGH";
+    } else if (reasonLower.length > 20) {
+      urgency = "MEDIUM";
+    }
 
     await resend.emails.send({
       from: "AIR AI Leads <onboarding@resend.dev>",
       to: ["bruce@airai.dev"],
-      subject: "New AIR AI Chat Intake",
+      subject: `New AIR AI Chat Lead — Urgency: ${urgency}`,
       text: `
-Name: ${name}
-Reason: ${reason}
-Urgency: ${urgency}
+Name: ${name || "Not provided"}
+Phone: ${phone || "Not provided"}
+
+Urgency:
+${urgency}
+
+Reason:
+${reason || "Not provided"}
 `
     });
 
