@@ -226,7 +226,7 @@ app.post("/voice/incoming", (req, res) => {
   `);
 });
 
-// STEP 2 — RELIABILITY-SAFE FLOW ✅
+// STEP 2 — RELIABILITY-SAFE FLOW
 app.post("/voice/reason", (req, res) => {
   const { CallSid, RecordingUrl } = req.body;
 
@@ -297,7 +297,18 @@ app.post("/voice/name", async (req, res) => {
           file: fs.createReadStream(p),
           model: "gpt-4o-transcribe",
         });
-        nameText = (t.text || "").trim();
+
+        // --------- ONLY CHANGE STARTS HERE ---------
+        const rawName = (t.text || "").trim();
+        const cleanedName = rawName.replace(/[^a-zA-Z\s]/g, "").trim();
+
+        if (cleanedName.length < 2) {
+          nameText = "";
+        } else {
+          nameText = cleanedName;
+        }
+        // --------- ONLY CHANGE ENDS HERE ---------
+
         fs.unlinkSync(p);
       }
 
