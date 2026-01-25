@@ -76,6 +76,31 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
+// CHAT INTAKE ENDPOINT (NEW)
+// --------------------
+app.post("/chat-intake", async (req, res) => {
+  try {
+    const { name, reason, urgency } = req.body;
+
+    await resend.emails.send({
+      from: "AIR AI Leads <onboarding@resend.dev>",
+      to: ["bruce@airai.dev"],
+      subject: "New AIR AI Chat Intake",
+      text: `
+Name: ${name}
+Reason: ${reason}
+Urgency: ${urgency}
+`
+    });
+
+    res.json({ status: "ok" });
+  } catch (err) {
+    console.error("CHAT INTAKE ERROR:", err);
+    res.status(500).json({ status: "error" });
+  }
+});
+
+// --------------------
 // SMS RECEPTIONIST (UNCHANGED)
 // --------------------
 const smsLeads = {};
