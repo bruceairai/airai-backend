@@ -1,11 +1,12 @@
 (function () {
   const BACKEND_BASE_URL = "https://airai-backend-production.up.railway.app";
 
-  let step = "START";
+  let step = "INIT";
 
   const lead = {
     reason: "",
-    name: ""
+    name: "",
+    phone: ""
   };
 
   function el(tag, attrs = {}, children = []) {
@@ -31,6 +32,21 @@
   function bot(text) { addMessage("bot", text); }
   function user(text) { addMessage("user", text); }
 
+  function isValidName(text) {
+    const t = text.trim().toLowerCase();
+    if (t.length < 2) return false;
+    if (["yes", "no", "ok", "okay", "yep", "yeah", "nah", "hi", "hello"].includes(t)) return false;
+    if (/^\d+$/.test(t)) return false;
+    return true;
+  }
+
+  function normalizePhone(text) {
+    const digits = text.replace(/\D/g, "");
+    if (digits.length === 10) return digits;
+    if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+    return null;
+  }
+
   async function submitLead() {
     try {
       await fetch(`${BACKEND_BASE_URL}/chat-intake`, {
@@ -38,6 +54,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: lead.name,
+          phone: lead.phone,
           reason: lead.reason,
           urgency: "unknown"
         })
@@ -50,21 +67,56 @@
   function handleInput(text) {
     user(text);
 
-    if (step === "START") {
+    // INIT → ask reason
+    if (step === "INIT") {
+      bot("How can I help you today?");
+      step = "ASK_REASON";
+      return;
+    }
+
+    // ASK_REASON → capture reason
+    if (step === "ASK_REASON") {
+      const cleaned = text.trim().toLowerCase();
+      if (cleaned.length < 3 || ["hi", "hello", "hey"].includes(cleaned)) {
+        bot("Please tell me what you need help with today.");
+        return;
+      }
+
       lead.reason = text;
       step = "ASK_NAME";
       bot("Thanks. May I have your name, please?");
       return;
     }
 
+    // ASK_NAME → validate name
     if (step === "ASK_NAME") {
+      if (!isValidName(text)) {
+        bot("May I please have your name?");
+        return;
+      }
+
       lead.name = text;
+      step = "ASK_PHONE";
+      bot("Thanks, " + lead.name + ". What’s the best phone number to reach you?");
+      return;
+    }
+
+    // ASK_PHONE → validate phone
+    if (step === "ASK_PHONE") {
+      const phone = normalizePhone(text);
+      if (!phone) {
+        bot("Please enter a valid 10-digit phone number.");
+        return;
+      }
+
+      lead.phone = phone;
       step = "DONE";
       bot("Thank you. We’ve received your information and will get back to you shortly.");
       submitLead();
       return;
     }
 
+    // DONE
     if (step === "DONE") {
       bot("Someone from our team will follow up with you shortly.");
     }
@@ -95,8 +147,8 @@
   function open() {
     panel.style.display = "block";
     if (messages.childElementCount === 0) {
-      bot("Hi — this is AIR, the AI receptionist. How can I help you today?");
-      step = "START";
+      bot("Hi — this is AIR, the AI receptionist.");
+      step = "INIT";
     }
     input.focus();
   }
