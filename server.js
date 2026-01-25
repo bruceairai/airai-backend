@@ -214,7 +214,7 @@ app.post("/sms", async (req, res) => {
 // --------------------
 const callRecordings = {};
 
-// STEP 1 — GREETING (AIR AI restored)
+// STEP 1 — GREETING
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
@@ -226,39 +226,24 @@ app.post("/voice/incoming", (req, res) => {
   `);
 });
 
-// STEP 2 — SILENCE-AWARE FLOW ✅
+// STEP 2 — RELIABILITY-SAFE FLOW ✅
 app.post("/voice/reason", (req, res) => {
-  const { CallSid, RecordingUrl, RecordingDuration } = req.body;
+  const { CallSid, RecordingUrl } = req.body;
 
   if (CallSid && RecordingUrl) {
     callRecordings[CallSid] = { reason: RecordingUrl };
   }
 
-  const isSilence = !RecordingDuration || RecordingDuration === "0";
-
   res.type("text/xml");
-
-  if (isSilence) {
-    // No speech → skip "Got it"
-    res.send(`
+  res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
+  <Play>https://${req.headers.host}/tts?text=Okay%2C%20what%27s%20your%20name%3F</Play>
   <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
 </Response>
-    `);
-  } else {
-    // Speech detected → normal flow
-    res.send(`
-<Response>
-  <Play>https://${req.headers.host}/tts?text=Got%20it.</Play>
-  <Play>https://${req.headers.host}/tts?text=May%20I%20have%20your%20name%2C%20please%3F</Play>
-  <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
-</Response>
-    `);
-  }
+  `);
 });
 
-// STEP 3 — GOODBYE (reusable Nova MP3)
+// STEP 3 — GOODBYE
 app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
