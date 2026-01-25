@@ -1,14 +1,11 @@
 (function () {
-  // ✅ Railway backend base URL
   const BACKEND_BASE_URL = "https://airai-backend-production.up.railway.app";
 
-  // Intake state
-  let step = "START";
+  let step = "GREETING";
 
   const lead = {
-    name: "",
     reason: "",
-    urgency: ""
+    name: ""
   };
 
   function el(tag, attrs = {}, children = []) {
@@ -31,20 +28,19 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
-  function bot(text) {
-    addMessage("bot", text);
-  }
-
-  function user(text) {
-    addMessage("user", text);
-  }
+  function bot(text) { addMessage("bot", text); }
+  function user(text) { addMessage("user", text); }
 
   async function submitLead() {
     try {
       await fetch(`${BACKEND_BASE_URL}/chat-intake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(lead)
+        body: JSON.stringify({
+          name: lead.name,
+          reason: lead.reason,
+          urgency: "unknown"
+        })
       });
     } catch (err) {
       console.error("Lead submit failed:", err);
@@ -55,40 +51,18 @@
     user(text);
 
     switch (step) {
-      case "START":
+
+      case "GREETING":
+        lead.reason = text;
         step = "ASK_NAME";
-        bot("May I have your name?");
+        bot("Thanks. May I have your name, please?");
         break;
 
       case "ASK_NAME":
         lead.name = text;
-        step = "ASK_REASON";
-        bot("Thanks. What can we help you with today?");
-        break;
-
-      case "ASK_REASON":
-        lead.reason = text;
-        step = "ASK_URGENCY";
-        bot("Is this urgent? (yes or no)");
-        break;
-
-      case "ASK_URGENCY":
-        lead.urgency = text.toLowerCase().startsWith("y") ? "urgent" : "not urgent";
-        step = "CONFIRM";
-        bot(
-          `Got it. Here’s what I have:\n\nName: ${lead.name}\nReason: ${lead.reason}\nUrgency: ${lead.urgency}\n\nIs this correct? (yes or no)`
-        );
-        break;
-
-      case "CONFIRM":
-        if (text.toLowerCase().startsWith("y")) {
-          step = "DONE";
-          bot("Thank you. We’ve received your information and will get back to you shortly.");
-          submitLead();
-        } else {
-          step = "ASK_NAME";
-          bot("No problem. Let’s try again. What’s your name?");
-        }
+        step = "DONE";
+        bot("Thank you. We’ve received your information and will get back to you shortly.");
+        submitLead();
         break;
 
       case "DONE":
@@ -134,7 +108,7 @@
     panel.style.display = "block";
     if (messages.childElementCount === 0) {
       bot("Hi — this is AIR, the AI receptionist. How can I help you today?");
-      step = "START";
+      step = "GREETING";
     }
     input.focus();
   }
