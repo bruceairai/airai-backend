@@ -76,13 +76,9 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT WIDGET (UNCHANGED)
+// SMS RECEPTIONIST (UNCHANGED)
 // --------------------
-let pendingLead = {
-  name: null,
-  phone: null,
-  intentDetected: false,
-};
+const smsLeads = {};
 
 const buyingIntentKeywords = [
   "quote",
@@ -97,93 +93,6 @@ const buyingIntentKeywords = [
   "service",
   "install",
 ];
-
-app.post("/chat", async (req, res) => {
-  try {
-    const userMessage =
-      typeof req.body?.message === "string"
-        ? req.body.message.trim()
-        : "";
-
-    if (!userMessage) {
-      return res.json({ reply: "How can I help you today?" });
-    }
-
-    if (!pendingLead.intentDetected && /\b\d{10}\b/.test(userMessage)) {
-      return res.json({
-        reply:
-          "Hi! I can help with pricing, estimates, or services. What can I assist you with?",
-      });
-    }
-
-    const cleanedMessage = userMessage
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, "");
-
-    if (
-      !pendingLead.intentDetected &&
-      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
-    ) {
-      pendingLead.intentDetected = true;
-      return res.json({ reply: "I can help with that. What’s your name?" });
-    }
-
-    if (pendingLead.intentDetected && !pendingLead.name) {
-      pendingLead.name = userMessage.split(" ")[0];
-      return res.json({
-        reply: `Thanks, ${pendingLead.name}! What’s the best phone number to reach you?`,
-      });
-    }
-
-    if (pendingLead.name && !pendingLead.phone) {
-      const phoneMatch = userMessage.match(/\b\d{10}\b/);
-
-      if (!phoneMatch) {
-        return res.json({
-          reply: "Please enter a valid 10-digit phone number.",
-        });
-      }
-
-      const leadName = pendingLead.name;
-      const leadPhone = phoneMatch[0];
-
-      pendingLead = {
-        name: null,
-        phone: null,
-        intentDetected: false,
-      };
-
-      res.json({
-        reply:
-          "Thanks! Your info has been sent to the team. Someone will reach out shortly.",
-      });
-
-      await resend.emails.send({
-        from: "AIR AI Leads <onboarding@resend.dev>",
-        to: ["bruce@airai.dev"],
-        subject: "New AIR AI Chat Lead",
-        text: `Name: ${leadName}\nPhone: ${leadPhone}`,
-      });
-
-      return;
-    }
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: userMessage }],
-    });
-
-    res.json({ reply: completion.choices[0].message.content });
-  } catch (err) {
-    console.error("CHAT ERROR:", err);
-    res.json({ reply: "Sorry — something went wrong." });
-  }
-});
-
-// --------------------
-// SMS RECEPTIONIST (UNCHANGED)
-// --------------------
-const smsLeads = {};
 
 app.post("/sms", async (req, res) => {
   try {
