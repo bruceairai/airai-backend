@@ -1,7 +1,7 @@
 (function () {
   const BACKEND_BASE_URL = "https://airai-backend-production.up.railway.app";
 
-  let step = "GREETING";
+  let step = "START";
 
   const lead = {
     reason: "",
@@ -50,49 +50,37 @@
   function handleInput(text) {
     user(text);
 
-    switch (step) {
+    if (step === "START") {
+      lead.reason = text;
+      step = "ASK_NAME";
+      bot("Thanks. May I have your name, please?");
+      return;
+    }
 
-      case "GREETING":
-        lead.reason = text;
-        step = "ASK_NAME";
-        bot("Thanks. May I have your name, please?");
-        break;
+    if (step === "ASK_NAME") {
+      lead.name = text;
+      step = "DONE";
+      bot("Thank you. We’ve received your information and will get back to you shortly.");
+      submitLead();
+      return;
+    }
 
-      case "ASK_NAME":
-        lead.name = text;
-        step = "DONE";
-        bot("Thank you. We’ve received your information and will get back to you shortly.");
-        submitLead();
-        break;
-
-      case "DONE":
-        bot("Someone from our team will follow up with you shortly.");
-        break;
+    if (step === "DONE") {
+      bot("Someone from our team will follow up with you shortly.");
     }
   }
 
   // UI
-  const launcher = el("button", { id: "airai-launcher", "aria-label": "Open AIR AI chat" }, [
-    el("img", { src: "airai-logo.png", alt: "AIR AI" })
+  const launcher = el("button", { id: "airai-launcher" }, [
+    el("div", { html: "AIR AI" })
   ]);
 
   const panel = el("div", { id: "airai-panel" });
-  const header = el("div", { id: "airai-header" });
-  const left = el("div", { class: "left" }, [
-    el("img", { src: "airai-logo.png", alt: "AIR AI" }),
-    el("div", { html: "AIR AI Receptionist" })
-  ]);
-  const closeBtn = el("button", { id: "airai-close" });
-  closeBtn.textContent = "Close";
-
-  header.appendChild(left);
-  header.appendChild(closeBtn);
-
+  const header = el("div", { id: "airai-header", html: "AIR AI Receptionist" });
   const messages = el("div", { id: "airai-messages" });
   const inputbar = el("div", { id: "airai-inputbar" });
   const input = el("input", { id: "airai-input", placeholder: "Type a message..." });
-  const sendBtn = el("button", { id: "airai-send" });
-  sendBtn.textContent = "Send";
+  const sendBtn = el("button", { id: "airai-send", html: "Send" });
 
   inputbar.appendChild(input);
   inputbar.appendChild(sendBtn);
@@ -108,7 +96,7 @@
     panel.style.display = "block";
     if (messages.childElementCount === 0) {
       bot("Hi — this is AIR, the AI receptionist. How can I help you today?");
-      step = "GREETING";
+      step = "START";
     }
     input.focus();
   }
@@ -117,25 +105,23 @@
     panel.style.display = "none";
   }
 
-  launcher.addEventListener("click", () => {
+  launcher.onclick = () => {
     panel.style.display === "block" ? close() : open();
-  });
+  };
 
-  closeBtn.addEventListener("click", close);
-
-  sendBtn.addEventListener("click", () => {
+  sendBtn.onclick = () => {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
     handleInput(text);
-  });
+  };
 
-  input.addEventListener("keydown", (e) => {
+  input.onkeydown = (e) => {
     if (e.key === "Enter") {
       const text = input.value.trim();
       if (!text) return;
       input.value = "";
       handleInput(text);
     }
-  });
+  };
 })();
