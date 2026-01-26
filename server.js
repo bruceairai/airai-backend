@@ -6,7 +6,6 @@ import path from "path";
 import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
-import fs from "fs";
 import { fileURLToPath } from "url";
 
 // --------------------
@@ -59,7 +58,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 Text-to-Speech (UNCHANGED - kept for other uses)
+// 🔊 Text-to-Speech (UNCHANGED)
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -90,23 +89,9 @@ app.post("/chat-intake", async (req, res) => {
   try {
     const { name, phone, reason } = req.body;
 
-    // Simple urgency detection
     const urgentKeywords = [
-      "no heat",
-      "no ac",
-      "flood",
-      "leak",
-      "burst",
-      "smell gas",
-      "gas",
-      "fire",
-      "sparks",
-      "smoke",
-      "overflow",
-      "emergency",
-      "urgent",
-      "asap",
-      "immediately"
+      "no heat","no ac","flood","leak","burst","smell gas","gas",
+      "fire","sparks","smoke","overflow","emergency","urgent","asap","immediately"
     ];
 
     let urgency = "LOW";
@@ -145,19 +130,9 @@ ${reason || "Not provided"}
 // SMS RECEPTIONIST (UNCHANGED)
 // --------------------
 const smsLeads = {};
-
 const buyingIntentKeywords = [
-  "quote",
-  "price",
-  "pricing",
-  "estimate",
-  "cost",
-  "call",
-  "contact",
-  "book",
-  "appointment",
-  "service",
-  "install",
+  "quote","price","pricing","estimate","cost","call","contact",
+  "book","appointment","service","install",
 ];
 
 app.post("/sms", async (req, res) => {
@@ -222,7 +197,7 @@ app.post("/sms", async (req, res) => {
 // --------------------
 const callRecordings = {};
 
-// STEP 1 — GREETING (RANDOMIZED STATIC MP3)
+// STEP 1 — GREETING
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
@@ -234,7 +209,7 @@ app.post("/voice/incoming", (req, res) => {
   `);
 });
 
-// STEP 2 — NAME PROMPT (RANDOMIZED STATIC MP3)
+// STEP 2 — NAME PROMPT
 app.post("/voice/reason", (req, res) => {
   const { CallSid, RecordingUrl } = req.body;
 
@@ -251,7 +226,7 @@ app.post("/voice/reason", (req, res) => {
   `);
 });
 
-// STEP 3 — GOODBYE (UNCHANGED STATIC FILE)
+// STEP 3 — GOODBYE
 app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
@@ -278,35 +253,32 @@ app.post("/voice/name", async (req, res) => {
         `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
       ).toString("base64");
 
-    const download = async (url, filename) => {
+    // --------- NO-DISK BUFFER DOWNLOAD ---------
+    const downloadBuffer = async (url) => {
       const r = await fetch(`${url}.mp3`, {
         headers: { Authorization: authHeader },
       });
-      const buf = Buffer.from(await r.arrayBuffer());
-      const filePath = `/tmp/${filename}`;
-      fs.writeFileSync(filePath, buf);
-      return filePath;
+      return Buffer.from(await r.arrayBuffer());
     };
+    // ------------------------------------------
 
     try {
       if (reasonUrl) {
-        const p = await download(reasonUrl, `${CallSid}-reason.mp3`);
+        const buf = await downloadBuffer(reasonUrl);
         const t = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(p),
+          file: { data: buf, name: "reason.mp3" },
           model: "gpt-4o-transcribe",
         });
         reasonText = (t.text || "").trim();
-        fs.unlinkSync(p);
       }
 
       if (nameUrl) {
-        const p = await download(nameUrl, `${CallSid}-name.mp3`);
+        const buf = await downloadBuffer(nameUrl);
         const t = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(p),
+          file: { data: buf, name: "name.mp3" },
           model: "gpt-4o-transcribe",
         });
 
-        // --------- ONLY CHANGE STARTS HERE ---------
         const rawName = (t.text || "").trim();
         const cleanedName = rawName.replace(/[^a-zA-Z\s]/g, "").trim();
 
@@ -315,9 +287,6 @@ app.post("/voice/name", async (req, res) => {
         } else {
           nameText = cleanedName;
         }
-        // --------- ONLY CHANGE ENDS HERE ---------
-
-        fs.unlinkSync(p);
       }
 
       const wordCount = reasonText.split(/\s+/).filter(Boolean).length;
@@ -327,11 +296,7 @@ app.post("/voice/name", async (req, res) => {
         const s = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            {
-              role: "system",
-              content:
-                "Summarize this phone call in 1–2 sentences for a business owner.",
-            },
+            { role: "system", content: "Summarize this phone call in 1–2 sentences for a business owner." },
             { role: "user", content: reasonText },
           ],
         });
@@ -340,11 +305,7 @@ app.post("/voice/name", async (req, res) => {
         const u = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            {
-              role: "system",
-              content:
-                "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only.",
-            },
+            { role: "system", content: "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only." },
             { role: "user", content: reasonText },
           ],
         });
