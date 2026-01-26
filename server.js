@@ -7,6 +7,7 @@ import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
 import { fileURLToPath } from "url";
+import { File } from "node:buffer"; // ✅ REQUIRED for in-memory transcription
 
 // --------------------
 // ES Module __dirname fix
@@ -265,17 +266,22 @@ app.post("/voice/name", async (req, res) => {
     try {
       if (reasonUrl) {
         const buf = await downloadBuffer(reasonUrl);
+        const audioFile = new File([buf], "reason.mp3", { type: "audio/mpeg" });
+
         const t = await openai.audio.transcriptions.create({
-          file: { data: buf, name: "reason.mp3" },
+          file: audioFile,
           model: "gpt-4o-transcribe",
         });
+
         reasonText = (t.text || "").trim();
       }
 
       if (nameUrl) {
         const buf = await downloadBuffer(nameUrl);
+        const audioFile = new File([buf], "name.mp3", { type: "audio/mpeg" });
+
         const t = await openai.audio.transcriptions.create({
-          file: { data: buf, name: "name.mp3" },
+          file: audioFile,
           model: "gpt-4o-transcribe",
         });
 
