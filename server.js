@@ -16,6 +16,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --------------------
+// 🔀 Random MP3 Picker (RELIABILITY SAFE)
+// --------------------
+function pickRandom(prefix, count) {
+  const n = Math.floor(Math.random() * count) + 1;
+  return `/audio/${prefix}_${n}.mp3`;
+}
+
+// --------------------
 // Email (Resend)
 // --------------------
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -29,7 +37,7 @@ app.use(cors());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Serve static files (goodbye.mp3, widget, etc)
+// Serve static files (goodbye.mp3, widget, audio, etc)
 app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------
@@ -51,7 +59,7 @@ const openai = new OpenAI({
 });
 
 // --------------------
-// 🔊 Text-to-Speech
+// 🔊 Text-to-Speech (UNCHANGED - kept for other uses)
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -214,19 +222,19 @@ app.post("/sms", async (req, res) => {
 // --------------------
 const callRecordings = {};
 
-// STEP 1 — GREETING
+// STEP 1 — GREETING (RANDOMIZED STATIC MP3)
 app.post("/voice/incoming", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Hi%2C%20thank%20you%20for%20calling%20AIR%20AI!</Play>
-  <Play>https://${req.headers.host}/tts?text=How%20can%20I%20help%20you%20today%3F</Play>
+  <Play>https://${req.headers.host}${pickRandom("greeting", 3)}</Play>
+  <Play>https://${req.headers.host}${pickRandom("help", 3)}</Play>
   <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
 </Response>
   `);
 });
 
-// STEP 2 — RELIABILITY-SAFE FLOW
+// STEP 2 — NAME PROMPT (RANDOMIZED STATIC MP3)
 app.post("/voice/reason", (req, res) => {
   const { CallSid, RecordingUrl } = req.body;
 
@@ -237,13 +245,13 @@ app.post("/voice/reason", (req, res) => {
   res.type("text/xml");
   res.send(`
 <Response>
-  <Play>https://${req.headers.host}/tts?text=Okay%2C%20what%27s%20your%20name%3F</Play>
+  <Play>https://${req.headers.host}${pickRandom("name", 3)}</Play>
   <Record action="/voice/name" method="POST" maxLength="5" playBeep="true" />
 </Response>
   `);
 });
 
-// STEP 3 — GOODBYE
+// STEP 3 — GOODBYE (UNCHANGED STATIC FILE)
 app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
