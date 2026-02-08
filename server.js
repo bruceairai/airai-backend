@@ -91,14 +91,27 @@ app.post("/chat-intake", async (req, res) => {
     const { name, phone, reason } = req.body;
 
     const urgentKeywords = [
-      "no heat","no ac","flood","leak","burst","smell gas","gas",
-      "fire","sparks","smoke","overflow","emergency","urgent","asap","immediately"
+      "no heat",
+      "no ac",
+      "flood",
+      "leak",
+      "burst",
+      "smell gas",
+      "gas",
+      "fire",
+      "sparks",
+      "smoke",
+      "overflow",
+      "emergency",
+      "urgent",
+      "asap",
+      "immediately",
     ];
 
     let urgency = "LOW";
     const reasonLower = (reason || "").toLowerCase();
 
-    if (urgentKeywords.some(word => reasonLower.includes(word))) {
+    if (urgentKeywords.some((word) => reasonLower.includes(word))) {
       urgency = "HIGH";
     } else if (reasonLower.length > 20) {
       urgency = "MEDIUM";
@@ -117,7 +130,7 @@ ${urgency}
 
 Reason:
 ${reason || "Not provided"}
-`
+`,
     });
 
     res.json({ status: "ok" });
@@ -132,8 +145,17 @@ ${reason || "Not provided"}
 // --------------------
 const smsLeads = {};
 const buyingIntentKeywords = [
-  "quote","price","pricing","estimate","cost","call","contact",
-  "book","appointment","service","install",
+  "quote",
+  "price",
+  "pricing",
+  "estimate",
+  "cost",
+  "call",
+  "contact",
+  "book",
+  "appointment",
+  "service",
+  "install",
 ];
 
 app.post("/sms", async (req, res) => {
@@ -159,7 +181,7 @@ app.post("/sms", async (req, res) => {
 
     if (
       !lead.intentDetected &&
-      buyingIntentKeywords.some(word => cleanedMessage.includes(word))
+      buyingIntentKeywords.some((word) => cleanedMessage.includes(word))
     ) {
       lead.intentDetected = true;
       res.type("text/xml");
@@ -198,24 +220,187 @@ app.post("/sms", async (req, res) => {
 // --------------------
 const callRecordings = {};
 
+// ====================
+// ✅ MODEL B (PARTIAL CALL SAFETY NET)
+// - No OpenAI during the live call
+// - Uses Twilio recordingStatusCallback on the FIRST recording step
+// - Schedules a "Partial call" email if the caller never reaches /voice/name
+// ====================
+const modelBCalls = new Map(); // CallSid -> state
+
+const MODEL_B_PARTIAL_DELAY_MS = Number(
+  process.env.MODEL_B_PARTIAL_DELAY_MS || 45000
+); // default 45s
+const MODEL_B_TTL_MS = Number(process.env.MODEL_B_TTL_MS || 15 * 60 * 1000); // default 15 min
+
+function modelBGet(callSid) {
+  if (!callSid) return null;
+  return modelBCalls.get(callSid) || null;
+}
+
+function modelBUpsert(callSid, patch) {
+  if (!callSid) return null;
+  const existing = modelBCalls.get(callSid) || {};
+  const next = { ...existing, ...patch, lastTouch: Date.now() };
+  modelBCalls.set(callSid, next);
+  return next;
+}
+
+function modelBClearTimer(callSid) {
+  const st = modelBGet(callSid);
+  if (st?.partialTimer) {
+    clearTimeout(st.partialTimer);
+    st.partialTimer = null;
+    modelBUpsert(callSid, st);
+  }
+}
+
+function modelBCleanup(callSid) {
+  modelBClearTimer(callSid);
+  modelBCalls.delete(callSid);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [callSid, st] of modelBCalls.entries()) {
+    if (!st?.lastTouch) continue;
+    if (now - st.lastTouch > MODEL_B_TTL_MS) {
+      modelBCleanup(callSid);
+    }
+  }
+}, 60 * 1000);
+
+// Twilio recording status callback for FIRST step only (reason recording)
+app.post("/twilio/recording-status", async (req, res) => {
+  try {
+    const stage = (req.query.stage || "").toLowerCase(); // expect "reason"
+    const callSid = req.body.CallSid;
+    if (!callSid) return res.sendStatus(200);
+
+    const from = req.body.From;
+    const to = req.body.To;
+
+    const recordingUrl = req.body.RecordingUrl; // base URL; often no extension
+    const recordingSid = req.body.RecordingSid;
+
+    const current = modelBUpsert(callSid, {
+      from: from || modelBGet(callSid)?.from,
+      to: to || modelBGet(callSid)?.to,
+      startedAt: modelBGet(callSid)?.startedAt || Date.now(),
+      ...(stage === "reason"
+        ? {
+            reasonRecordingUrl: recordingUrl,
+            reasonRecordingSid: recordingSid,
+          }
+        : {}),
+    });
+
+    if (stage !== "reason") return res.sendStatus(200);
+
+    // If full email already sent, do nothing
+    if (current.fullSent) return res.sendStatus(200);
+
+    // If already scheduled/sent partial, do nothing
+    if (current.partialSent || current.partialTimer) return res.sendStatus(200);
+
+    // Schedule partial email (post-call work only)
+    const timer = setTimeout(async () => {
+      const latest = modelBGet(callSid);
+      if (!latest) return;
+
+      // If full email got sent in the meantime, skip partial
+      if (latest.fullSent) {
+        modelBCleanup(callSid);
+        return;
+      }
+
+      // Mark partial as sent first to avoid duplicates if anything retriggers
+      modelBUpsert(callSid, { partialSent: true, partialTimer: null });
+
+      const subject = "AIR AI – Partial Call (Caller hung up before name)";
+      const body = `
+A caller reached the first recording step (reason), but did not complete the name step.
+
+Phone: ${latest.from || "Not available"}
+CallSid: ${callSid}
+
+Reason RecordingSid:
+${latest.reasonRecordingSid || "Not available"}
+
+Reason RecordingUrl:
+${latest.reasonRecordingUrl || "Not available"}
+
+Note: This is the Model B safety-net email. If the call completes normally, you will receive the full summary email instead.
+`;
+
+      try {
+        await resend.emails.send({
+          from: "AIR AI Calls <onboarding@resend.dev>",
+          to: ["bruce@airai.dev"],
+          subject,
+          text: body,
+        });
+      } catch (e) {
+        console.error("MODEL B PARTIAL EMAIL FAILED:", e);
+      }
+    }, MODEL_B_PARTIAL_DELAY_MS);
+
+    modelBUpsert(callSid, { partialTimer: timer });
+
+    // Always 200 to avoid Twilio retry storms
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error("MODEL B /twilio/recording-status ERROR:", err);
+    return res.sendStatus(200);
+  }
+});
+
 // STEP 1 — GREETING
 app.post("/voice/incoming", (req, res) => {
+  const { CallSid, From, To } = req.body;
+
+  // Initialize Model B state (safe no-op if repeated)
+  if (CallSid) {
+    modelBUpsert(CallSid, {
+      from: From,
+      to: To,
+      startedAt: Date.now(),
+      partialSent: false,
+      fullSent: false,
+    });
+  }
+
   res.type("text/xml");
   res.send(`
 <Response>
   <Play>https://${req.headers.host}${pickRandom("greeting", 3)}</Play>
   <Play>https://${req.headers.host}${pickRandom("help", 3)}</Play>
-  <Record action="/voice/reason" method="POST" maxLength="10" playBeep="true" />
+  <Record
+    action="/voice/reason"
+    method="POST"
+    maxLength="10"
+    playBeep="true"
+    recordingStatusCallback="https://${req.headers.host}/twilio/recording-status?stage=reason"
+    recordingStatusCallbackMethod="POST"
+    recordingStatusCallbackEvent="completed"
+  />
 </Response>
   `);
 });
 
 // STEP 2 — NAME PROMPT
 app.post("/voice/reason", (req, res) => {
-  const { CallSid, RecordingUrl } = req.body;
+  const { CallSid, RecordingUrl, From, To } = req.body;
 
   if (CallSid && RecordingUrl) {
     callRecordings[CallSid] = { reason: RecordingUrl };
+
+    // Also store for Model B reference (harmless if callback already did)
+    modelBUpsert(CallSid, {
+      from: From || modelBGet(CallSid)?.from,
+      to: To || modelBGet(CallSid)?.to,
+      reasonRecordingUrl: RecordingUrl,
+    });
   }
 
   res.type("text/xml");
@@ -232,6 +417,14 @@ app.post("/voice/name", async (req, res) => {
   const { CallSid, From, RecordingUrl } = req.body;
   const reasonUrl = callRecordings[CallSid]?.reason;
   const nameUrl = RecordingUrl;
+
+  // ✅ Model B: cancel any scheduled partial email and mark full sent
+  if (CallSid) {
+    modelBClearTimer(CallSid);
+    modelBUpsert(CallSid, { fullSent: true });
+    // cleanup later (keeps things safe if anything arrives late)
+    setTimeout(() => modelBCleanup(CallSid), 2 * 60 * 1000);
+  }
 
   res.type("text/xml");
   res.send(`
@@ -302,7 +495,11 @@ app.post("/voice/name", async (req, res) => {
         const s = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: "Summarize this phone call in 1–2 sentences for a business owner." },
+            {
+              role: "system",
+              content:
+                "Summarize this phone call in 1–2 sentences for a business owner.",
+            },
             { role: "user", content: reasonText },
           ],
         });
@@ -311,7 +508,11 @@ app.post("/voice/name", async (req, res) => {
         const u = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only." },
+            {
+              role: "system",
+              content:
+                "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only.",
+            },
             { role: "user", content: reasonText },
           ],
         });
