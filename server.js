@@ -118,7 +118,8 @@ app.post("/chat-intake", async (req, res) => {
     }
 
     await resend.emails.send({
-      from: "AIR AI Leads <onboarding@resend.dev>",
+      from: "AIR AI Leads <leads@mail.airai.dev>",
+      replyTo: "leads@airai.dev",
       to: ["bruce@airai.dev"],
       subject: `New AIR AI Chat Lead — Urgency: ${urgency}`,
       text: `
@@ -343,7 +344,9 @@ app.post("/twilio/recording-status", async (req, res) => {
       try {
         if (reasonUrl) {
           const buf = await downloadBuffer(reasonUrl);
-          const audioFile = new File([buf], "reason.mp3", { type: "audio/mpeg" });
+          const audioFile = new File([buf], "reason.mp3", {
+            type: "audio/mpeg",
+          });
 
           const t = await openai.audio.transcriptions.create({
             file: audioFile,
@@ -360,7 +363,11 @@ app.post("/twilio/recording-status", async (req, res) => {
           const s = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-              { role: "system", content: "Summarize this phone call in 1–2 sentences for a business owner." },
+              {
+                role: "system",
+                content:
+                  "Summarize this phone call in 1–2 sentences for a business owner.",
+              },
               { role: "user", content: reasonText },
             ],
           });
@@ -369,11 +376,17 @@ app.post("/twilio/recording-status", async (req, res) => {
           const u = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-              { role: "system", content: "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only." },
+              {
+                role: "system",
+                content:
+                  "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only.",
+              },
               { role: "user", content: reasonText },
             ],
           });
-          urgency = (u.choices[0].message.content || "LOW").toUpperCase().trim();
+          urgency = (u.choices[0].message.content || "LOW")
+            .toUpperCase()
+            .trim();
         }
       } catch (e) {
         console.error("MODEL B POST-CALL AI FAILED:", e);
@@ -405,7 +418,8 @@ ${reasonText || "Not available"}
 
       try {
         await resend.emails.send({
-          from: "AIR AI Calls <onboarding@resend.dev>",
+          from: "AIR AI Calls <calls@mail.airai.dev>",
+          replyTo: "calls@airai.dev",
           to: ["bruce@airai.dev"],
           subject,
           text: body,
@@ -615,7 +629,8 @@ ${reasonText || "Not available"}
 `;
 
     await resend.emails.send({
-      from: "AIR AI Calls <onboarding@resend.dev>",
+      from: "AIR AI Calls <calls@mail.airai.dev>",
+      replyTo: "calls@airai.dev",
       to: ["bruce@airai.dev"],
       subject,
       text: body,
