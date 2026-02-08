@@ -224,7 +224,8 @@ const callRecordings = {};
 // ✅ MODEL B (PARTIAL CALL SAFETY NET)
 // - No OpenAI during the live call
 // - Uses Twilio recordingStatusCallback on the FIRST recording step
-// - Schedules a "Partial call" email if the caller never reaches /voice/name
+// - Sends a clean email even if caller never reaches /voice/name
+// - If AI fails OR transcript is empty => "Missed Call – No Message Left"
 // ====================
 const modelBCalls = new Map(); // CallSid -> state
 
@@ -290,7 +291,7 @@ app.post("/twilio/recording-status", async (req, res) => {
       ...(stage === "reason"
         ? {
             reasonRecordingUrl: recordingUrl,
-            reasonRecordingSid: recordingSid,
+            reasonRecordingSid: recordingSid, // stored for internal use only (not emailed)
           }
         : {}),
     });
@@ -314,23 +315,92 @@ app.post("/twilio/recording-status", async (req, res) => {
         return;
       }
 
-      // Mark partial as sent first to avoid duplicates if anything retriggers
+      // Mark partial as sent first (prevents duplicates)
       modelBUpsert(callSid, { partialSent: true, partialTimer: null });
 
-      const subject = "AIR AI – Partial Call (Caller hung up before name)";
-      const body = `
-A caller reached the first recording step (reason), but did not complete the name step.
+      const fromPhone = latest.from || "Not available";
+      const reasonUrl = latest.reasonRecordingUrl;
 
-Phone: ${latest.from || "Not available"}
-CallSid: ${callSid}
+      // Default behavior if anything fails: clean "no message" email (V1 simple)
+      let reasonText = "";
+      let summary = "";
+      let urgency = "LOW";
+      let isEmptyMessage = true;
 
-Reason RecordingSid:
-${latest.reasonRecordingSid || "Not available"}
+      const authHeader =
+        "Basic " +
+        Buffer.from(
+          `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
+        ).toString("base64");
 
-Reason RecordingUrl:
-${latest.reasonRecordingUrl || "Not available"}
+      const downloadBuffer = async (url) => {
+        const r = await fetch(`${url}.mp3`, {
+          headers: { Authorization: authHeader },
+        });
+        return Buffer.from(await r.arrayBuffer());
+      };
 
-Note: This is the Model B safety-net email. If the call completes normally, you will receive the full summary email instead.
+      try {
+        if (reasonUrl) {
+          const buf = await downloadBuffer(reasonUrl);
+          const audioFile = new File([buf], "reason.mp3", { type: "audio/mpeg" });
+
+          const t = await openai.audio.transcriptions.create({
+            file: audioFile,
+            model: "gpt-4o-transcribe",
+          });
+
+          reasonText = (t.text || "").trim();
+        }
+
+        const wordCount = reasonText.split(/\s+/).filter(Boolean).length;
+        isEmptyMessage = wordCount < 3;
+
+        if (!isEmptyMessage) {
+          const s = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: "Summarize this phone call in 1–2 sentences for a business owner." },
+              { role: "user", content: reasonText },
+            ],
+          });
+          summary = (s.choices[0].message.content || "").trim();
+
+          const u = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: "Classify the urgency of this call as HIGH, MEDIUM, or LOW. Respond with one word only." },
+              { role: "user", content: reasonText },
+            ],
+          });
+          urgency = (u.choices[0].message.content || "LOW").toUpperCase().trim();
+        }
+      } catch (e) {
+        console.error("MODEL B POST-CALL AI FAILED:", e);
+        // Keep isEmptyMessage = true (simple V1 fallback)
+        isEmptyMessage = true;
+      }
+
+      const subject = isEmptyMessage
+        ? "Missed Call – No Message Left"
+        : `New AIR AI Call — Urgency: ${urgency}`;
+
+      const body = isEmptyMessage
+        ? `A call was received but no message was left.\n\nPhone: ${fromPhone}`
+        : `
+Phone: ${fromPhone}
+
+Caller Name (AI):
+Not detected
+
+Urgency:
+${urgency}
+
+Summary:
+${summary || "Not available"}
+
+Transcript:
+${reasonText || "Not available"}
 `;
 
       try {
