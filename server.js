@@ -93,7 +93,6 @@ async function maybeSendOwnerSms({ urgency, name, number, transcript }) {
       });
     }
   } catch (err) {
-    // Log full error (Twilio includes useful error codes)
     console.error("OWNER SMS FAILED:", err?.message || err);
   }
 }
@@ -358,7 +357,7 @@ app.post("/twilio/recording-status", async (req, res) => {
       ...(stage === "reason"
         ? {
             reasonRecordingUrl: recordingUrl,
-            reasonRecordingSid: recordingSid, // stored for internal use only
+            reasonRecordingSid: recordingSid,
           }
         : {}),
     });
@@ -483,12 +482,12 @@ ${reasonText || "Not available"}
           text: body,
         });
 
-        // ✅ Owner SMS even for partial calls (matches "always send" rule)
+        // ✅ CONSISTENT: if empty message, SMS will say "no message detected"
         await maybeSendOwnerSms({
           urgency: isEmptyMessage ? "LOW" : urgency,
           name: "",
           number: fromPhone,
-          transcript: reasonText,
+          transcript: isEmptyMessage ? "" : reasonText,
         });
       } catch (e) {
         console.error("MODEL B PARTIAL EMAIL FAILED:", e);
@@ -694,12 +693,12 @@ ${reasonText || "Not available"}
       text: body,
     });
 
-    // ✅ Owner SMS after full flow
+    // ✅ CONSISTENT: if empty message, SMS will say "no name/message detected"
     await maybeSendOwnerSms({
       urgency: isEmptyMessage ? "LOW" : urgency,
-      name: nameText,
+      name: isEmptyMessage ? "" : nameText,
       number: From,
-      transcript: reasonText,
+      transcript: isEmptyMessage ? "" : reasonText,
     });
 
     delete callRecordings[CallSid];
