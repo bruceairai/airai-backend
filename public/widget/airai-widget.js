@@ -128,7 +128,7 @@
   ]);
 
   const panel = el("div", { id: "airai-panel" });
-  const header = el("div", { id: "airai-header", html: "AIR AI Receptionist" });
+  const header = el("div", { id: "airai-header", html: "AIR AI Assistant" });
   const messages = el("div", { id: "airai-messages" });
   const inputbar = el("div", { id: "airai-inputbar" });
   const input = el("input", { id: "airai-input", placeholder: "Type a message..." });
