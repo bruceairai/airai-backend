@@ -147,7 +147,7 @@
   function open() {
     panel.style.display = "block";
     if (messages.childElementCount === 0) {
-      bot("Hi — this is AIR, the AI receptionist.");
+      bot("Hi — this is the AIR AI assistant.");
       step = "INIT";
     }
     input.focus();
