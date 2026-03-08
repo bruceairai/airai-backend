@@ -7,17 +7,13 @@ import cors from "cors";
 import OpenAI from "openai";
 import { Resend } from "resend";
 import { fileURLToPath } from "url";
-import { File } from "node:buffer"; // ✅ REQUIRED for in-memory transcription
-import twilio from "twilio"; // ✅ ADDED for owner SMS alerts
+import { File } from "node:buffer";
+import twilio from "twilio";
 
-// --------------------
-// ES Module __dirname fix
 // --------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --------------------
-// 🔀 Random MP3 Picker (RELIABILITY SAFE)
 // --------------------
 function pickRandom(prefix, count) {
   const n = Math.floor(Math.random() * count) + 1;
@@ -25,12 +21,8 @@ function pickRandom(prefix, count) {
 }
 
 // --------------------
-// Email (Resend)
-// --------------------
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// --------------------
-// Twilio Client (Owner SMS Alerts)
 // --------------------
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -41,8 +33,6 @@ const OWNER_SMS_ENABLED = process.env.OWNER_SMS_ENABLED === "true";
 const OWNER_SMS_TO = process.env.OWNER_SMS_TO;
 const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 
-// --------------------
-// 📲 Owner SMS Builder
 // --------------------
 function buildOwnerSms({ urgency, name, number, transcript }) {
   const clean = (text) =>
@@ -92,8 +82,6 @@ async function maybeSendOwnerSms({ urgency, name, number, transcript }) {
 }
 
 // --------------------
-// App setup
-// --------------------
 const app = express();
 
 app.use(cors());
@@ -102,6 +90,7 @@ app.use(express.json());
 
 app.use(express.static(path.join(__dirname, "public")));
 
+// --------------------
 app.get("/widget", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "widget", "index.html"));
 });
@@ -111,14 +100,10 @@ app.get("/", (req, res) => {
 });
 
 // --------------------
-// OpenAI
-// --------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --------------------
-// 🔊 TTS
 // --------------------
 app.get("/tts", async (req, res) => {
   try {
@@ -143,102 +128,16 @@ app.get("/tts", async (req, res) => {
 });
 
 // --------------------
-// CHAT INTAKE
+// VOICE SYSTEM
 // --------------------
-app.post("/chat-intake", async (req, res) => {
-  try {
-    const { name, phone, reason } = req.body;
 
-    const urgentKeywords = [
-      "no heat","no ac","flood","leak","burst","smell gas","gas","fire","sparks","smoke","overflow","emergency","urgent","asap","immediately"
-    ];
-
-    let urgency = "LOW";
-    const reasonLower = (reason || "").toLowerCase();
-
-    if (urgentKeywords.some((word) => reasonLower.includes(word))) {
-      urgency = "HIGH";
-    } else if (reasonLower.length > 20) {
-      urgency = "MEDIUM";
-    }
-
-    await resend.emails.send({
-      from: "AIR AI Leads <leads@mail.airai.dev>",
-      replyTo: "leads@airai.dev",
-      to: ["bruce@airai.dev"],
-      subject: `New AIR AI Chat Lead — Urgency: ${urgency}`,
-      text: `
-Name: ${name || "Not provided"}
-Phone: ${phone || "Not provided"}
-
-Urgency:
-${urgency}
-
-Reason:
-${reason || "Not provided"}
-`,
-    });
-
-    res.json({ status: "ok" });
-  } catch (err) {
-    console.error("CHAT INTAKE ERROR:", err);
-    res.status(500).json({ status: "error" });
-  }
-});
-
-// --------------------
-// SMS RECEPTIONIST
-// --------------------
-const smsLeads = {};
-const buyingIntentKeywords = [
-  "quote","price","pricing","estimate","cost","call","contact","book","appointment","service","install"
-];
-
-app.post("/sms", async (req, res) => {
-  try {
-    const from = req.body.From;
-    const body = (req.body.Body || "").trim();
-
-    if (!from || !body) {
-      res.type("text/xml");
-      return res.send(`<Response><Message>Hi! How can I help you today?</Message></Response>`);
-    }
-
-    if (!smsLeads[from]) {
-      smsLeads[from] = { name: null, intentDetected: false };
-    }
-
-    const lead = smsLeads[from];
-    const cleanedMessage = body.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-
-    if (!lead.intentDetected && buyingIntentKeywords.some((word) => cleanedMessage.includes(word))) {
-      lead.intentDetected = true;
-      res.type("text/xml");
-      return res.send(`<Response><Message>I can help with that! What’s your name?</Message></Response>`);
-    }
-
-    if (lead.intentDetected && !lead.name) {
-      lead.name = body.split(" ")[0];
-      res.type("text/xml");
-      return res.send(`<Response><Message>Thanks, ${lead.name}! Someone will reach out shortly.</Message></Response>`);
-    }
-
-    res.type("text/xml");
-    res.send(`<Response><Message>Thanks! We’ve sent your info to the team.</Message></Response>`);
-
-    delete smsLeads[from];
-  } catch (err) {
-    console.error("SMS ERROR:", err);
-  }
-});
-
-// --------------------
-// VOICE RECEPTIONIST
-// --------------------
 const callRecordings = {};
 const modelBCalls = new Map();
 
-const MODEL_B_PARTIAL_DELAY_MS = Number(process.env.MODEL_B_PARTIAL_DELAY_MS || 45000);
+const MODEL_B_PARTIAL_DELAY_MS = Number(
+  process.env.MODEL_B_PARTIAL_DELAY_MS || 45000
+);
+
 const MODEL_B_TTL_MS = Number(process.env.MODEL_B_TTL_MS || 15 * 60 * 1000);
 
 function modelBGet(callSid) {
@@ -281,6 +180,7 @@ setInterval(() => {
 // --------------------
 // STEP 1 — GREETING
 // --------------------
+
 app.post("/voice/incoming", (req, res) => {
   const { CallSid, From, To } = req.body;
 
@@ -309,17 +209,24 @@ app.post("/voice/incoming", (req, res) => {
     recordingStatusCallbackEvent="completed"
   />
 </Response>
-  `);
+`);
 });
 
 // --------------------
 // STEP 2 — NAME
 // --------------------
+
 app.post("/voice/reason", (req, res) => {
-  const { CallSid, RecordingUrl } = req.body;
+  const { CallSid, RecordingUrl, From, To } = req.body;
 
   if (CallSid && RecordingUrl) {
     callRecordings[CallSid] = { reason: RecordingUrl };
+
+    modelBUpsert(CallSid, {
+      from: From || modelBGet(CallSid)?.from,
+      to: To || modelBGet(CallSid)?.to,
+      reasonRecordingUrl: RecordingUrl,
+    });
   }
 
   res.type("text/xml");
@@ -328,12 +235,13 @@ app.post("/voice/reason", (req, res) => {
   <Play>https://${req.headers.host}${pickRandom("name", 3)}</Play>
   <Record action="/voice/name" method="POST" maxLength="5" playBeep="false" />
 </Response>
-  `);
+`);
 });
 
 // --------------------
 // STEP 3 — GOODBYE
 // --------------------
+
 app.post("/voice/name", async (req, res) => {
 
   res.type("text/xml");
@@ -342,10 +250,11 @@ app.post("/voice/name", async (req, res) => {
   <Play>https://${req.headers.host}/goodbye.mp3</Play>
   <Hangup/>
 </Response>
-  `);
+`);
 });
 
 // --------------------
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
